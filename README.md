@@ -2,7 +2,7 @@
 
 一个可复现的多工作流 Agent 执行、故障恢复与版本回归评测工程。它提供状态化业务工具、受控故障、独立判定器、真实模型工具循环、MCP stdio 接口和回归门禁。核心需要 Python 3.11+。
 
-本版公开完整业务步骤，测量执行与恢复，不单独测量从自然语言发现计划的能力。业务、付款、通知与邀请都在本地模拟。项目适合 1–2 人继续维护；当前定位是可审查的工程原型。
+本版公开完整业务步骤，测量执行与恢复，当前定位是可审查的工程原型。
 
 ## 1. 快速运行
 
@@ -98,9 +98,5 @@ recovery-eval model --backend api --model YOUR_MODEL --base-url https://YOUR_END
 | `docs/`, `examples/` | 架构、实验、审查、提交及轻量快照 |
 
 v0.1 的两步实验 API 仍在 `core.py/comparison.py/reporting.py/api_agent.py/local_model.py` 保留，用于兼容旧样本和测试；新命令使用 v0.2 模块，旧结果不合并为当前成绩。
-
-## 8. 继续审查和提交 GitHub
-
-依次阅读 [架构](docs/ARCHITECTURE.md)、[扩展指南](docs/EXTENDING.md)、[Benchmark Card](docs/BENCHMARK_CARD.md)、[审查清单](docs/REVIEW_CHECKLIST.md)、[GitHub 提交步骤](docs/GITHUB_SUBMISSION.md) 和 [PR 正文](PR_DESCRIPTION.md)。[简历写法](docs/RESUME.md) 只使用实测事实；[相关工作](docs/RELATED_WORK.md) 说明已有研究与本项目边界。
 
 代码已推送至 [ltan0136/agent-recovery-eval](https://github.com/ltan0136/agent-recovery-eval)，变更与审查记录见 [PR #1](https://github.com/ltan0136/agent-recovery-eval/pull/1)。[CI 运行 39036962895](https://github.com/ltan0136/agent-recovery-eval/actions/runs/39036962895) 的 Python 3.11／3.12／3.13 核心任务及可选集成任务共四项均已通过。原始本地实验记录、补丁与 Git bundle 保留用于复核。MIT 是本地版本的许可选择，仓库所有者应复核署名与许可；模型和依赖各自保留原许可。
