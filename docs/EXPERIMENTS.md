@@ -80,12 +80,12 @@ python scripts/resume_model_run.py --source runs/model-qwen-release --out runs/q
 
 包内正式结果已经完成，不要续写它们；上例使用新的输出路径。一次只增加一个完整回合；顺序重复至16例后自动结算成完整报告。工具要求源码、冻结计划、模型revision、预算和已保存前缀一致，并通过OS锁拒绝并发worker。它只支持本次发布协议，其他矩阵需另行扩展。
 
-本次实际续跑脚本保存在代码提交 `b402658`，对应脚本快照也随实验记录包提供，其SHA与续跑manifest匹配。发布源码之后加强了完整工作流与冻结配置校验并补上测试；这不改变14个评测核心模块或任何保存的模型结果。两个小模型曾并发推理，后续Qwen按回合重新加载；相关资源与中断事实一并保留。
+本次实际续跑脚本保存在原始本地提交 `b402658`，该提交仍在交付的 Git bundle 中；对应远程实现提交 `2f3262e8c18f2d4f4d8d7118388ca38b87a5fbe9` 与它具有相同 Git tree。对应脚本快照也随本地实验记录包提供，其SHA与续跑manifest匹配。发布源码之后加强了完整工作流与冻结配置校验并补上测试；这不改变14个评测核心模块或任何保存的模型结果。两个小模型曾并发推理，后续Qwen按回合重新加载；相关资源与中断事实一并保留。
 
 ## 5. 软件验证
 
 核心与可选MCP测试128项、Prime独立包9项，合计137项全部通过。MCP的六项测试使用真实SDK和stdio子进程，调用方为程序化client；不计作LLM成绩。Modal 1.6.2 `.local()` 规则函数真实执行32回合；Prime 0.4.0加载40项静态Taskset并检验原生reward，dry-run不做推理。
 
-本地执行环境为Python3.12.14。CI已配置3.11／3.12／3.13，未在GitHub托管runner实际触发。wheel与sdist重新构建、文档与集成文件入包、全新venv安装及安装后的8回合CLI检查均有记录。核心无第三方依赖；可选依赖组合的解析已通过。
+本地执行环境为Python3.12.14。代码现已推送至 [ltan0136/agent-recovery-eval](https://github.com/ltan0136/agent-recovery-eval)，[草稿 PR #1](https://github.com/ltan0136/agent-recovery-eval/pull/1) 尚未合并。[GitHub 托管 CI 运行 39036962895](https://github.com/ltan0136/agent-recovery-eval/actions/runs/39036962895) 的 Python 3.11／3.12／3.13 核心任务及可选集成任务共四项均已通过。核心任务各发现128项测试并跳过未安装依赖的六项MCP测试；可选任务另行通过六项真实MCP测试和九项Prime测试，并完成SDK本地检查。这次托管运行与原始本地137项全部通过的证据分别记录。wheel与sdist重新构建、文档与集成文件入包、全新venv安装及安装后的8回合CLI检查均有记录。核心无第三方依赖；可选依赖组合的解析已通过。
 
 HTML完成了嵌入数据、转义与脚本语法检查；本环境Chromium下载失败，未做浏览器视觉验收。Modal／Prime云任务、付费模型API、Hub发布与生产部署均未运行。模型权重和SDK安装目录不在交付源码包内。

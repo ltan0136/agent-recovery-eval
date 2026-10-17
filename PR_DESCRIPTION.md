@@ -16,7 +16,7 @@
 2. 正式执行 **6,144 回合规则基线**，原始状态／账本／哈希复核一致。幂等策略成功 1,344/1,536（87.5%），其余 192 例为永久失败，无重复或错误成功声明。
 3. 有意从幂等策略切换为有界重试，在 1,536 对回合、48 个业务簇中检测出 **744 个退化、0 改善**，门禁阻断；相同策略自比较通过。该对照不是一次真实模型版本升级。
 4. 两个固定 revision 的本地小模型完成32个回合，业务成功0/32；可观察格式失败、查询循环、部分写入及重复效果。Qwen原进程中断后保留7个完整失败并续跑9例，未知在途工作量另行记录。完整成绩、原始输出、格式与截断计数见 [实验记录](docs/EXPERIMENTS.md)。规则与模型不合并解释为同类分数。
-5. Modal 真实 SDK `.local()` 规则函数执行、Prime 原生 Taskset 加载／reward／dry-run、本地 wheel 安装和 CLI smoke 均已检查。日志与快照随审查材料提供。GitHub Actions 已配置，本轮未在线触发。
+5. Modal 真实 SDK `.local()` 规则函数执行、Prime 原生 Taskset 加载／reward／dry-run、本地 wheel 安装和 CLI smoke 均已检查。日志与快照随本地审查材料提供。[GitHub Actions 运行 39036962895](https://github.com/ltan0136/agent-recovery-eval/actions/runs/39036962895) 的 Python 3.11／3.12／3.13 核心任务及可选集成任务共四项均已通过；核心任务跳过未安装依赖的六项 MCP 测试，可选任务另行通过六项真实 MCP 测试和九项 Prime 测试。
 
 ```bash
 python run_demo.py
@@ -33,4 +33,4 @@ MCP 的六项测试需安装 `requirements-mcp.txt`；无此依赖会明确跳�
 2. 幂等收益依赖服务端契约；永久失败可能不可达。模型小样本及低生成预算不支持总体排名，失败及截断不排除出分母。
 3. Prime 包是结算状态诊断，不是动态工具恢复环境。Modal／Prime 云任务、外部付费模型 API、Hub 发布、生产服务和多租户隔离均未验证。
 4. MIT 为本地版本许可选择，发布者需确认署名与适用范围；第三方模型和依赖保留各自许可。
-5. 建议按 [审查清单](docs/REVIEW_CHECKLIST.md) 复核原始轨迹。当前仅准备本地分支、提交、补丁、bundle 和 PR 正文；尚未指定 GitHub 目标仓库，没有创建在线 PR。若贡献上游，应按其抽象缩小并适配改动。
+5. 建议按 [审查清单](docs/REVIEW_CHECKLIST.md) 复核原始轨迹。代码已推送至 [ltan0136/agent-recovery-eval](https://github.com/ltan0136/agent-recovery-eval)，[草稿 PR #1](https://github.com/ltan0136/agent-recovery-eval/pull/1) 为 `main` ← `feat/multi-workflow-evaluation`，尚未合并。本地实验记录、补丁和 bundle 保留用于复核。若贡献第三方上游，应按其抽象缩小并适配改动。

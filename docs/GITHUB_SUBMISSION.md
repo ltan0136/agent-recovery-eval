@@ -1,6 +1,6 @@
 # GitHub 提交与 PR 审查说明
 
-当前交付用于本地审查。没有指定 GitHub 目标仓库时，不推定某个远程仓库属于用户，也不创建或宣称已创建在线拉取请求。
+代码已推送至已核实的目标仓库 [ltan0136/agent-recovery-eval](https://github.com/ltan0136/agent-recovery-eval)。[草稿 PR #1](https://github.com/ltan0136/agent-recovery-eval/pull/1) 为 `main` ← `feat/multi-workflow-evaluation`，尚未合并；原始本地实验记录与审查包继续保留。[CI 运行 39036962895](https://github.com/ltan0136/agent-recovery-eval/actions/runs/39036962895) 的 Python 3.11／3.12／3.13 核心任务及可选集成任务共四项均已通过。
 
 ## 1. 先区分发布项目和贡献上游
 
@@ -29,7 +29,7 @@ ZIP 可解压检查；Git bundle 可保留提交历史并在不依赖原目录�
 
 ## 3. 推送到自己的仓库
 
-以下为替换占位符后的操作模板。只有确认目标仓库后才执行；`YOUR_ACCOUNT`、`YOUR_REPOSITORY`、`BASE_BRANCH` 和 `REVIEW_BRANCH` 不是实际地址或分支名。
+本次推送与草稿 PR 已完成，不需重复创建。以下仅为今后向其他已确认仓库提交时的操作模板；`YOUR_ACCOUNT`、`YOUR_REPOSITORY`、`BASE_BRANCH` 和 `REVIEW_BRANCH` 不是本次实际地址或分支名。
 
 ```bash
 git remote -v
@@ -79,3 +79,5 @@ python run_demo.py
 ```
 
 上例在解压包根目录执行；若已经进入源码目录，先回到包含 `review/` 的父目录。完整源码在 `agent-recovery-eval/`，可不使用 Git 直接运行。`changes.patch` 是相对于包内 `main` 的增量，不能假设可直接应用到任意第三方仓库。
+
+审查包中的原始实现提交为 `b402658`；远程对应实现提交 `2f3262e8c18f2d4f4d8d7118388ca38b87a5fbe9` 与它具有相同 Git tree。原始本地历史也保存在本地 `archive/local-v0.1-baseline` 和 `archive/local-v0.2-review` 分支中；提交标识变化没有改变已保存实验结果。

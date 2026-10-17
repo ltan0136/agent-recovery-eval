@@ -58,9 +58,10 @@
 
 ## 7. GitHub 提交材料
 
-1. [ ] 用户已确认目标仓库或上游 fork；当前交付未被误述为已经创建在线 PR。
+1. [ ] 核对实际目标为 [ltan0136/agent-recovery-eval](https://github.com/ltan0136/agent-recovery-eval)，[草稿 PR #1](https://github.com/ltan0136/agent-recovery-eval/pull/1) 为 `main` ← `feat/multi-workflow-evaluation`，尚未合并。
 2. [ ] 检查 LICENSE；本仓库 MIT 文本仍需要仓库所有者确认适用于自己提交的内容。
 3. [ ] 保留引用、模型与依赖各自的许可，不把项目许可扩大到第三方权重或数据。
 4. [ ] README、贡献说明、变更记录和 PR 正文与最终实现一致。
 5. [ ] 若向第三方仓库贡献，已将变更缩小为符合其架构和贡献要求的范围。
 6. [ ] 拉取请求包含必要复现步骤、测试摘要、实跑范围和未运行项。
+7. [ ] 复核 [CI 运行 39036962895](https://github.com/ltan0136/agent-recovery-eval/actions/runs/39036962895)的四项任务均已通过；核心任务的六项 MCP 跳过与可选任务另行运行六项 MCP、九项 Prime 测试已分别记录。
