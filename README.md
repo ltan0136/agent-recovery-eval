@@ -1,8 +1,8 @@
 # Recovery Eval Lite
 
-一个可独立复现的小型 Agent 故障恢复与轨迹诊断评测项目。核心实验只需要 Python 3.11+；不需要 Modal、Prime Intellect 账户或模型 API 密钥。可选的小模型实验首次需要下载公开模型和 CPU 推理依赖。
+一个可独立复现的小型 Agent 故障恢复与轨迹诊断评测项目。核心实验需要 Python 3.11+。
 
-## 1. 已真实完成的内容
+## 1.内容
 
 1. 执行 1,080 回合规则策略实验：12 组业务参数 × 5 个调度种子 × 6 种条件 × 3 种恢复策略。
 2. 运行 40 项核心、报告、API 适配及回归比较单元测试；另运行 4 项 Prime 任务包评分测试，全部通过。
@@ -33,9 +33,9 @@ python -m recovery_eval compare --before results/local/episodes.jsonl --after re
 
 ## 3. 本次测量范围
 
-工作流只有一种：创建服务记录，再发送关联通知。12 个参数样例不等于 12 种任务，也不等于 12 个业务领域。
+工作流：创建服务记录，再发送关联通知。
 
-故障条件为：无故障对照、提交前失败、提交后丢失响应、延迟提交、丢失响应加陈旧查询、重复投递。种子实际改变故障作用于哪一步及延迟提交时间。
+故障条件：无故障对照、提交前失败、提交后丢失响应、延迟提交、丢失响应加陈旧查询、重复投递。种子实际改变故障作用于哪一步及延迟提交时间。
 
 三个策略共享同一工具契约和观测接口：
 
@@ -45,9 +45,9 @@ python -m recovery_eval compare --before results/local/episodes.jsonl --after re
 | 查询后重试 | 50.0% | 50.0% |
 | 稳定幂等键重试 | 100.0% | 0.0% |
 
-这些是模拟环境中的手写规则基线，不能写成 LLM 成绩。100% 来自本环境对稳定操作键的服务端去重保证，不能推断为现实系统或所有故障下的保证。已知故障都只触发一次；没有覆盖永久故障、多服务事务、权限变化、真实网络以及多智能体并发。
+模拟环境中的手写规则基线，不能推断为现实系统或所有故障下的保证。已知故障都只触发一次；没有覆盖永久故障、多服务事务、权限变化、真实网络以及多智能体并发。
 
-评分依据最终业务状态和已提交操作账本。先送达所有迟到写入，再检查正确内容、正确关联、重复和缺失。模型或策略说“已完成”不能代替最终状态。虚拟时钟不是实际网络延迟。
+评分依据最终业务状态和已提交操作账本。先送达所有迟到写入，再检查正确内容、正确关联、重复和缺失。
 
 ## 4. 失败复现
 
@@ -55,7 +55,7 @@ python -m recovery_eval compare --before results/local/episodes.jsonl --after re
 python -m recovery_eval replay --case-id task-001-s0-stale_read --policy verify_then_retry
 ```
 
-输出含工具调用、故障、提交事件、最终状态和评分。此命令重新执行确定性模拟，区别于仅查看历史日志。
+输出含工具调用、故障、提交事件、最终状态和评分。
 
 ## 5. 真实本地模型诊断
 
@@ -79,8 +79,6 @@ python -m pip install -r requirements-modal.txt
 modal setup
 modal run modal_eval.py --limit 60 --out results/modal
 ```
-
-必须先完成自己的 Modal 认证。最多两个 CPU 容器、单函数 120 秒，并不等于美元硬预算。只有真实远程任务返回成功后才写云端结果。详见 `integrations/MODAL.md`。
 
 Prime 的 `integrations/prime_taskset` 是原生 Verifiers v1 **轨迹诊断任务包**，与动态恢复实验的测量对象不同。可本地检查任务，再配置模型端点；需要托管运行时再安装 Prime CLI、认证并发布任务包。详见该目录的 README。不要使用过时的 v0 Rubric / StatefulToolEnv API。
 
@@ -106,6 +104,6 @@ python -m recovery_eval.api_agent --help
 
 ## 9. 来源与边界
 
-本项目是小型工程实现，不声称首次提出故障恢复、幂等操作或评测器检查。相关先行工作包括 [UndoBench](https://arxiv.org/abs/2610.05622)、[Where Does Exactly-Once Live?](https://arxiv.org/abs/2609.29095)、[faultbench](https://github.com/mit-hun-k/faultbench)。接口参考 [Modal 批处理](https://modal.com/docs/guide/batch-processing)、[Verifiers v1](https://docs.primeintellect.ai/verifiers/v1/tasksets)；模型来自 [SmolLM2 官方仓库](https://huggingface.co/HuggingFaceTB/SmolLM2-135M-Instruct)。
+本项目是小型工程实现。相关先行工作包括 [UndoBench](https://arxiv.org/abs/2610.05622)、[Where Does Exactly-Once Live?](https://arxiv.org/abs/2609.29095)、[faultbench](https://github.com/mit-hun-k/faultbench)。接口参考 [Modal 批处理](https://modal.com/docs/guide/batch-processing)、[Verifiers v1](https://docs.primeintellect.ai/verifiers/v1/tasksets)；模型来自 [SmolLM2 官方仓库](https://huggingface.co/HuggingFaceTB/SmolLM2-135M-Instruct)。
 
-下一步可扩展真实业务工具版本变化、更多工作流、两个以上模型、更多生成预算、测试选择策略及独立外部接入。当前没有实现 LangGraph 原生适配器、完整 MCP server 或多租户平台，简历不应写这些功能已完成。
+下一步可扩展真实业务工具版本变化、更多工作流、两个以上模型、更多生成预算、测试选择策略及独立外部接入。
