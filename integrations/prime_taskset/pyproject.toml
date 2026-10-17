@@ -1,0 +1,20 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "recovery-diagnosis"
+version = "0.1.0"
+description = "Trace-grounded fault diagnosis tasks for Verifiers v1"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = ["verifiers==0.4.0"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["recovery_diagnosis"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"data" = "recovery_diagnosis/data"
+
+[tool.hatch.build.targets.sdist]
+include = ["recovery_diagnosis", "data", "tests", "README.md", "pyproject.toml"]

@@ -1,0 +1,13 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "recovery-eval-lite"
+version = "0.1.0"
+description = "A small reproducible recovery simulator and evaluation toolkit"
+requires-python = ">=3.11"
+dependencies = []
+
+[tool.setuptools.packages.find]
+include = ["recovery_eval*"]
