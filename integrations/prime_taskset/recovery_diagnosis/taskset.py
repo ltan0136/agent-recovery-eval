@@ -27,6 +27,28 @@ class DiagnosisConfig(vf.TasksetConfig):
     data_path: str = ""
 
 
+def validate_evidence(request: Any, trace: Any) -> None:
+    """Require the current CLI's fully observable settled-state/ledger format."""
+    if not isinstance(request, dict) or not isinstance(request.get("workflow_id"), str):
+        raise ValueError("request must contain a workflow_id string")
+    steps = request.get("steps")
+    if not isinstance(steps, list) or not steps:
+        raise ValueError("request must contain a nonempty public step plan")
+    for step in steps:
+        if (not isinstance(step, dict) or not isinstance(step.get("name"), str)
+                or not isinstance(step.get("tool"), str)
+                or not isinstance(step.get("arguments"), dict)
+                or not isinstance(step.get("requires"), list)):
+            raise ValueError("Every public step needs name, tool, arguments, and requires")
+    if not isinstance(trace, list) or len(trace) != 2:
+        raise ValueError("trace must contain settled-state and settled-ledger evidence")
+    required = (("inspect_settled_state", dict), ("inspect_settled_ledger", list))
+    for observation, (tool, result_type) in zip(trace, required):
+        if (not isinstance(observation, dict) or observation.get("tool") != tool
+                or not isinstance(observation.get("result"), result_type)):
+            raise ValueError("trace must use the current export-diagnosis tool/result schema")
+
+
 def resolve_data_path(configured_path: str) -> Path:
     if configured_path:
         return Path(configured_path).expanduser().resolve()
@@ -57,6 +79,7 @@ class DiagnosisTaskset(vf.Taskset[DiagnosisTask, DiagnosisConfig]):
                     if not isinstance(case_id, str) or not case_id or case_id in seen_ids:
                         raise ValueError("Case IDs must be unique nonempty strings")
                     expected = validate_diagnosis(row["expected"])
+                    validate_evidence(row["request"], row["trace"])
                     prompt = build_prompt(row["request"], row["trace"])
                 except (ValueError, KeyError, TypeError) as exc:
                     raise ValueError(f"Invalid case at {data_path}:{line_number}: {exc}") from exc

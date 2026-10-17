@@ -1,0 +1,64 @@
+{
+  "core": {
+    "tests": 128,
+    "passed": 128,
+    "skipped": 0,
+    "log": "validation/core-tests.log"
+  },
+  "prime": {
+    "tests": 9,
+    "passed": 9,
+    "skipped": 0,
+    "log": "validation/prime-tests.log"
+  },
+  "total_tests": 137,
+  "python_versions_executed": [
+    "3.12.14"
+  ],
+  "ci_python_versions_configured": [
+    "3.11",
+    "3.12",
+    "3.13"
+  ],
+  "hosted_github_ci_executed": false,
+  "modal": {
+    "sdk": "1.6.2",
+    "local_scripted_episodes": 32,
+    "cloud_execution": false,
+    "model_entrypoint_validation": "argument forwarding with mocked adapter and runner; no additional model inference"
+  },
+  "mcp": {
+    "sdk": "2.0.0",
+    "real_stdio_tests": 6,
+    "caller": "programmatic test client; not an LLM"
+  },
+  "prime_taskset": {
+    "sdk": "verifiers 0.4.0",
+    "fixture_tasks": 40,
+    "native_reward_checked": true,
+    "dry_run_passed": true,
+    "model_inference": false,
+    "hub_upload": false
+  },
+  "packaging": {
+    "wheel_built": true,
+    "fresh_venv_install": true,
+    "installed_cli_smoke_episodes": 8,
+    "optional_dependencies_resolve": true
+  },
+  "html": {
+    "embedded_payload_and_escape_tests": "passed",
+    "javascript_syntax": "passed",
+    "browser_visual_review": "not performed; Chromium download failed"
+  },
+  "continuation": {
+    "tests": 5,
+    "included_in_core_total": true,
+    "original_failed_episodes_preserved": 7,
+    "continued_episodes": 9,
+    "unobserved_inflight_attempt": "unknown",
+    "core_source_unchanged": true,
+    "used_script_commit": "b402658",
+    "published_script_has_additional_input_validation": true
+  }
+}
