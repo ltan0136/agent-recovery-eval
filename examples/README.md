@@ -13,7 +13,7 @@
 快照生成与完整性检查：
 
 ```bash
-python scripts/build_release_review.py --scripted runs/scripted-release --smol runs/model-smol-release --qwen runs/model-qwen-release --comparisons runs/comparisons --snapshot examples/release_snapshot.json --out runs/review.html
+python scripts/build_release_review.py --scripted runs/scripted-release --smol runs/model-smol-release --qwen runs/model-qwen-release-resumed --comparisons runs/comparisons --snapshot examples/release_snapshot.json --out runs/review.html
 ```
 
 请先将实验记录包按上述目录放回仓库，或改用实际绝对路径。程序会拒绝未完成、运行中源文件变化、数量错误或校验和不匹配的正式运行。

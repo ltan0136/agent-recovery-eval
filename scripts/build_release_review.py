@@ -122,6 +122,11 @@ def main():
             "fault_label_episodes": len(faulty), "fault_triggered_episodes": sum(
                 any(e["event"] == "fault_triggered" for e in r["trace"]) for r in faulty),
             "tool_calls_by_name": dict(tool_names), "model_calls": len(calls),
+            "tool_errors_by_type": dict(Counter(
+                c["tool_response"]["error"]["type"] for c in calls
+                if c.get("tool_response", {}).get("ok") is False)),
+            "committed_effects": sum(len(r["ledger"]) for r in batch),
+            "partial_effect_episodes": sum(bool(r["ledger"]) and not r["success"] for r in batch),
             "invalid_responses": sum(c["status"] == "invalid_action" for c in calls),
             "truncated_responses": sum(bool(c.get("metadata", {}).get("generation_truncated")) for c in calls),
             "conditional_recovery_eligible": len(eligible),

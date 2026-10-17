@@ -101,6 +101,6 @@ v0.1 的两步实验 API 仍在 `core.py/comparison.py/reporting.py/api_agent.py
 
 ## 8. 继续审查和提交 GitHub
 
-依次阅读 [架构](docs/ARCHITECTURE.md)、[Benchmark Card](docs/BENCHMARK_CARD.md)、[审查清单](docs/REVIEW_CHECKLIST.md)、[GitHub 提交步骤](docs/GITHUB_SUBMISSION.md) 和 [PR 正文](PR_DESCRIPTION.md)。[简历写法](docs/RESUME.md) 只使用实测事实；[相关工作](docs/RELATED_WORK.md) 说明已有研究与本项目边界。
+依次阅读 [架构](docs/ARCHITECTURE.md)、[扩展指南](docs/EXTENDING.md)、[Benchmark Card](docs/BENCHMARK_CARD.md)、[审查清单](docs/REVIEW_CHECKLIST.md)、[GitHub 提交步骤](docs/GITHUB_SUBMISSION.md) 和 [PR 正文](PR_DESCRIPTION.md)。[简历写法](docs/RESUME.md) 只使用实测事实；[相关工作](docs/RELATED_WORK.md) 说明已有研究与本项目边界。
 
 提供的源码、补丁和 Git bundle 用于你检查后推送。未指定目标仓库，当前没有在线 PR。MIT 是本地版本的许可选择，发布前由仓库所有者确认署名与许可；模型和依赖各自保留原许可。
