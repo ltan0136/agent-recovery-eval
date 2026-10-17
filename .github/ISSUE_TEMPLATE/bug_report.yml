@@ -1,0 +1,51 @@
+name: Bug report
+description: 使用最小合成案例报告功能、判定或复现问题。
+title: "[Bug] "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        请勿粘贴密钥、令牌、私人数据或真实业务轨迹。
+        涉及可利用漏洞或数据泄露时，请先阅读 SECURITY.md，使用私密报告渠道。
+  - type: textarea
+    id: behavior
+    attributes:
+      label: 预期与实际行为
+      description: 写清触发条件、期望结果和实际结果。
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: 最小复现
+      description: 提供命令、合成案例配置及必要步骤，不包含真实账户信息。
+      render: shell
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: 代码版本与环境
+      description: Git commit、Python 版本、操作系统及可选组件版本。
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: 经清理的证据
+      description: 案例 ID、条件哈希、run_status、报错或相关轨迹片段；先移除敏感字段。
+      render: text
+  - type: dropdown
+    id: execution
+    attributes:
+      label: 执行方式
+      options:
+        - 核心规则策略
+        - 真实本地模型恢复
+        - 外部模型 API 恢复
+        - MCP stdio
+        - 旧版静态诊断
+        - 可选 Modal / Prime
+    validations:
+      required: true

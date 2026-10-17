@@ -1,7 +1,16 @@
 __pycache__/
-*.pyc
+*.py[cod]
 .venv/
 *.egg-info/
 .env
+.env.*
+!.env.example
 model_cache/
 outputs/
+runs/
+results/
+build/
+dist/
+*.log
+*.bundle
+*.patch

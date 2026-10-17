@@ -1,111 +1,106 @@
-# Recovery Eval Lite
+# Agent Recovery Eval
 
-一个可独立复现的小型 Agent 故障恢复与轨迹诊断评测项目。核心实验只需要 Python 3.11+；不需要 Modal、Prime Intellect 账户或模型 API 密钥。可选的小模型实验首次需要下载公开模型和 CPU 推理依赖。
+一个可复现的多工作流 Agent 执行、故障恢复与版本回归评测工程。它提供状态化业务工具、受控故障、独立判定器、真实模型工具循环、MCP stdio 接口和回归门禁。核心只需 Python 3.11+，不需要云账号或 API key。
 
-## 1. 已真实完成的内容
+本版公开完整业务步骤，测量执行与恢复，不单独测量从自然语言发现计划的能力。业务、付款、通知与邀请都在本地模拟。项目适合 1–2 人继续维护；当前定位是可审查的工程原型。
 
-1. 执行 1,080 回合规则策略实验：12 组业务参数 × 5 个调度种子 × 6 种条件 × 3 种恢复策略。
-2. 运行 40 项核心、报告、API 适配及回归比较单元测试；另运行 4 项 Prime 任务包评分测试，全部通过。
-3. 比较同条件的 360 对回合，将幂等策略切换为查询后重试策略，检测出 180 个退化案例。这是故意构造的策略变更检验，不是某次真实模型版本升级事件。
-4. 导出 94 个去重、带可信答案的最终状态诊断案例，包含实际执行产生的缺失、重复及错误内容控制样例。
-5. 在 CPU 上真实运行公开模型 SmolLM2-135M-Instruct，对前 12 个分层交错排列样例进行诊断。严格 JSON 格式有效 8/12，完整答案正确 0/12；4 个无效回答触及 96 token 生成上限。保留全部原始输出，没有修复答案。
-6. Modal SDK 1.6.2 入口注册、CLI 帮助和本地函数接口检查通过；Prime Verifiers 0.4.0 原生任务包加载、评分和 CLI dry-run 通过。两个平台的云端任务均未运行。
-
-## 2. 最快复现
-
-在项目目录运行：
+## 1. 快速运行
 
 ```bash
 python run_demo.py
 ```
 
-Windows 可以双击 `run_demo.cmd`，它会运行测试、规则基线和回归比较，再打开 HTML 报告。
+Windows 可以双击 `run_demo.cmd`。每次创建新的 `runs/demo-时间戳/`，运行 256 回合规则基线，并将幂等重试切换为有界重试，展示一次预期的回归阻断。打开打印的 `report.html` 路径。
 
-核心部分零第三方依赖，也可以分别运行：
+也可以安装命令行工具：
 
 ```bash
+python -m pip install .
+recovery-eval list
+recovery-eval run --variants 4 --seeds 3 --out runs/my-baseline
 python -m unittest discover -s tests -v
-python -m recovery_eval demo --tasks 12 --seeds 5 --out results/local
-python -m recovery_eval compare --before results/local/episodes.jsonl --after results/local/episodes.jsonl --before-policy idempotent_retry --after-policy verify_then_retry --out results/regression
 ```
 
-打开 `results/overview.html` 查看本次交付总览；重新运行产生的新结果位于 `results/local` 和 `results/regression`。总览是本次交付时的快照，不会随重新运行自动更新。
+默认矩阵为 4 工作流 × 4 参数变体 × 3 种子 × 8 条件 = 384 个冻结案例；4 个策略共 1,536 回合。参数变体和种子不是新业务领域，也不是独立用户样本。已有结果不会被覆盖，重新运行请换输出路径。
 
-## 3. 本次测量范围
+## 2. 测什么
 
-工作流只有一种：创建服务记录，再发送关联通知。12 个参数样例不等于 12 种任务，也不等于 12 个业务领域。
+| 工作流 | 步骤 | 独立业务约束 |
+| --- | --- | --- |
+| 工单处理 `ticket_dispatch` | 创建、分派、解决、通知 | 内容、接收人、关联及顺序 |
+| 库存订单 `inventory_order` | 占库、建单、扣款、发货、回执 | 库存容量、金额、收件地址与关联 |
+| 会议预约 `meeting_booking` | 占用、建会、邀请、确认 | 房间容量、时间、参会人与依赖 |
+| 文档发布 `document_publication` | 提交、检查、审批、发布、通知 | 版本、审核前置、渠道与受众 |
 
-故障条件为：无故障对照、提交前失败、提交后丢失响应、延迟提交、丢失响应加陈旧查询、重复投递。种子实际改变故障作用于哪一步及延迟提交时间。
+库存和会议流程包含分支依赖，允许多种合法拓扑执行顺序；不是只替换一条线性任务的名字。总共 18 个业务步骤，另有公共 `inspect_step` 查询。所有状态按回合隔离。
 
-三个策略共享同一工具契约和观测接口：
+条件包括 `clean`、`pre_commit_timeout`、`lost_ack`、`late_commit`、`stale_read`、`duplicate_delivery`、`transient_rate_limit`、`permanent_failure`。评分前结算迟到写入，从状态和追加式账本检查完成、重复、缺失、内容、关联、先后与资源约束。策略声称成功不覆盖判分。
 
-| 策略 | 本次全条件完成率 | 含重复操作的回合率 |
-| --- | ---: | ---: |
-| 有界重试 | 33.3% | 66.7% |
-| 查询后重试 | 50.0% | 50.0% |
-| 稳定幂等键重试 | 100.0% | 0.0% |
+四个手写基线为 `no_retry`、`bounded_retry`、`verify_then_retry`、`idempotent_retry`。稳定幂等键的收益依赖模拟服务的去重契约；永久失败不能靠重试保证完成。
 
-这些是模拟环境中的手写规则基线，不能写成 LLM 成绩。100% 来自本环境对稳定操作键的服务端去重保证，不能推断为现实系统或所有故障下的保证。已知故障都只触发一次；没有覆盖永久故障、多服务事务、权限变化、真实网络以及多智能体并发。
+## 3. 本次实跑证据
 
-评分依据最终业务状态和已提交操作账本。先送达所有迟到写入，再检查正确内容、正确关联、重复和缺失。模型或策略说“已完成”不能代替最终状态。虚拟时钟不是实际网络延迟。
+发布快照、实际数量和发现见 [实验记录](docs/EXPERIMENTS.md)。完整 JSONL 与模型原始输出在单独的实验记录包中，仓库保留轻量结果快照，避免提交模型权重和大型日志。
 
-## 4. 失败复现
+规则策略、真实本地模型、测试用适配器和 Prime 静态诊断分别记账。测试通过或脚本通过率不能写成 LLM 成绩。真实小模型样本用于检查闭环，不支持总体模型排名。
+
+## 4. 冻结案例、重放与回归
 
 ```bash
-python -m recovery_eval replay --case-id task-001-s0-stale_read --policy verify_then_retry
+recovery-eval matrix --variants 2 --seeds 1 --out runs/cases.jsonl
+recovery-eval run --variants 2 --seeds 1 --out runs/review
+recovery-eval replay --episodes runs/review/episodes.jsonl --case-id ticket_dispatch-v001-s0-lost_ack --policy bounded_retry
+recovery-eval compare --before runs/review/episodes.jsonl --after runs/review/episodes.jsonl --before-agent idempotent_retry --after-agent bounded_retry --out runs/regression.json --fail-on-block
 ```
 
-输出含工具调用、故障、提交事件、最终状态和评分。此命令重新执行确定性模拟，区别于仅查看历史日志。
+`matrix` 导出用于审查的案例清单；`run` 用相同生成参数构建案例。重放读取已保存的案例和执行预算，重新执行确定性策略。真实模型再次生成不是确定性日志重放。
 
-## 5. 真实本地模型诊断
+比较必须具有相同案例集合和完整条件哈希。以工作流及业务变体为簇做配对 bootstrap，少于 5 簇返回证据不足。输出 `pass`、`block` 或 `inconclusive`，并逐案例检查重复、缺失和错误成功声明；接口错误留在分母并阻止放行。`pass` 表示这组冻结案例满足声明的退化容忍门禁，不保证零个成功率退化案例，也不表示系统绝对安全。`--fail-on-block` 在阻断时返回 2；不确定结论写入 JSON，由调用方决定如何处理。
 
-这是独立的**最终状态轨迹诊断**任务：模型读取原始请求与 settled state，输出 duplicates、missing、success。它不直接执行恢复动作，因此结果不能解释成模型恢复成功率。
+## 5. 真实模型执行
 
-本次模型 revision：`12fd25f77366fa6b3b4b768ec3050bf629380bac`。CPU、float32、4 线程、greedy、每例最多 96 个新 token。模型权重不打包，首次运行会下载约 269 MB 的公开权重。
+模型逐回合输出严格 JSON 动作；runner 真实调用同一个模拟器，再把公共返回交给模型。它不向模型发送故障标签、隐藏调度、判分答案或提交账本。原始生成、token IDs、EOS／长度上限、格式纠正、工具返回与预算结束原因均保留。
 
 ```bash
 python -m pip install -r requirements-local-model.txt
-python -m recovery_eval.local_model --data integrations/prime_taskset/data/diagnosis_cases.jsonl --out results/local_model_rerun.json --limit 12 --revision 12fd25f77366fa6b3b4b768ec3050bf629380bac
+recovery-eval model --backend local --model Qwen/Qwen2.5-0.5B-Instruct --revision 7ae557604adf67be50417f59c2c2f167def9a775 --allow-download --max-new-tokens 160 --max-turns 8 --max-tool-calls 12 --out runs/qwen
 ```
 
-精确 CPU PyTorch 安装说明见依赖文件注释；CUDA 版本没有必要。首次下载需要网络，下载后可以加 `--local-files-only`。原始首轮结果位于 `results/local_model_diagnosis.json`；输出格式失败如实计零，未用修复器。首轮终止原因由生成长度及原文回溯标注，后续 runner 已增加精确 token/EOS 记录。
+首次需要公开模型下载和 CPU 推理依赖。默认只使用本地缓存；`--allow-download` 才允许首次下载。离线缓存可通过 `--cache-dir` 指定。默认覆盖四个工作流、一个参数变体、一个种子、`clean/lost_ack` 和 `basic/guarded` 两种提示，共 16 回合。一次显式格式纠正计入 8 次模型请求预算，无静默提取或修复。
 
-## 6. Modal 与 Prime 入口
-
-Modal 用于可选 CPU 批处理，不调用语言模型、不启动常驻服务：
+也支持文本 Chat Completions 的 OpenAI-compatible 端点：
 
 ```bash
-python -m pip install -r requirements-modal.txt
-modal setup
-modal run modal_eval.py --limit 60 --out results/modal
+# Set PRIME_API_KEY in your environment before running.
+recovery-eval model --backend api --model YOUR_MODEL --base-url https://YOUR_ENDPOINT/v1 --api-key-env PRIME_API_KEY --out runs/api
 ```
 
-必须先完成自己的 Modal 认证。最多两个 CPU 容器、单函数 120 秒，并不等于美元硬预算。只有真实远程任务返回成功后才写云端结果。详见 `integrations/MODAL.md`。
+密钥只从环境变量读取；模型和端点使用自己的配置。本次未调用付费模型 API。调用数和 token 上限限制请求规模，不构成美元硬预算。API 路径测试含 mock，不等于端点实测。
 
-Prime 的 `integrations/prime_taskset` 是原生 Verifiers v1 **轨迹诊断任务包**，与动态恢复实验的测量对象不同。可本地检查任务，再配置模型端点；需要托管运行时再安装 Prime CLI、认证并发布任务包。详见该目录的 README。不要使用过时的 v0 Rubric / StatefulToolEnv API。
+## 6. MCP、Modal 与 Prime Intellect
 
-## 7. 可选真实模型恢复入口
+1. **MCP**：`python -m recovery_eval.mcp_server` 提供真实 stdio 工具 `get_task/execute/finish`，公共完成返回不含评分。已使用真实 SDK 子进程测试，调用方是程序化 client。安装 `requirements-mcp.txt` 后复现，见 [MCP 文档](docs/MCP.md)。
+2. **Modal**：可选远程 CPU 规则批处理与本地模型入口，见 [Modal 文档](integrations/MODAL.md)。本轮仅本地 SDK／函数验证，没有启动云任务。
+3. **Prime**：原生 Verifiers v1 静态诊断 Taskset，见 [任务包文档](integrations/prime_taskset/README.md)。它读取结算证据判别结果，不是动态恢复环境。本轮没有发布 Hub 或运行托管评测；动态模型可另经兼容端点接入主 runner。
 
-`recovery_eval/api_agent.py` 可将 OpenAI 兼容模型接到状态模拟工具。模型只收到业务请求和公共工具返回，不接触故障元数据与 oracle。此入口已经通过 mock tool-loop 测试，但本次未调用外部模型 API。
+## 7. 结果文件与项目结构
 
-```bash
-python -m recovery_eval.api_agent --help
-```
+每次运行生成 `episodes.jsonl`、`summary.json`、`metrics.csv`、`example_traces.json`、自包含 `report.html` 和含校验和的 `manifest.json`。`progress.jsonl` 持续保存已完成回合，中断不会把它们变成成功运行。报告展示失败优先的代表轨迹，完整分母在 JSONL。
 
-实际运行时提供 `--model`、`--base-url`、`--api-key-env`，密钥只从环境变量读取，不写入代码和报告。不要把参数省略的帮助检查称为真实模型恢复实验。单回合最多 12 次模型请求、24 次工具调用、每次最多 512 个输出 token；费用由实际端点决定。
+| 路径 | 作用 |
+| --- | --- |
+| `recovery_eval/workflows.py`, `engine.py` | 任务契约、真实状态、故障、策略及判分 |
+| `recovery_eval/agents.py` | 本地／API 模型和真实工具执行循环 |
+| `recovery_eval/regression.py` | 配对校验、簇 bootstrap、回归门禁 |
+| `recovery_eval/cli.py`, `artifacts.py` | CLI、运行元数据及可筛选报告 |
+| `recovery_eval/mcp_server.py` | MCP stdio 服务 |
+| `tests/`, `integrations/` | 核心及可选接口验证 |
+| `docs/`, `examples/` | 架构、实验、审查、提交及轻量快照 |
 
-## 8. 文件与复现证据
+v0.1 的两步实验 API 仍在 `core.py/comparison.py/reporting.py/api_agent.py/local_model.py` 保留，用于兼容旧样本和测试；新命令使用 v0.2 模块，旧结果不合并为当前成绩。
 
-1. `recovery_eval/core.py`：状态环境、事件账本、恢复策略、可信评分。
-2. `recovery_eval/comparison.py`：相同条件哈希下的成对回归检查。
-3. `recovery_eval/reporting.py`：JSONL/CSV/HTML 和诊断数据导出。
-4. `recovery_eval/local_model.py`：真实 CPU 模型诊断。
-5. `tests/`：40 项核心测试；Prime 独立包另有 4 项评分测试。
-6. `results/`：本次真实执行结果与原始模型输出。
-7. `.github/workflows/eval.yml`：无密钥的自动测试与规则评测流程。
+## 8. 继续审查和提交 GitHub
 
-## 9. 来源与边界
+依次阅读 [架构](docs/ARCHITECTURE.md)、[Benchmark Card](docs/BENCHMARK_CARD.md)、[审查清单](docs/REVIEW_CHECKLIST.md)、[GitHub 提交步骤](docs/GITHUB_SUBMISSION.md) 和 [PR 正文](PR_DESCRIPTION.md)。[简历写法](docs/RESUME.md) 只使用实测事实；[相关工作](docs/RELATED_WORK.md) 说明已有研究与本项目边界。
 
-本项目是小型工程实现，不声称首次提出故障恢复、幂等操作或评测器检查。相关先行工作包括 [UndoBench](https://arxiv.org/abs/2610.05622)、[Where Does Exactly-Once Live?](https://arxiv.org/abs/2609.29095)、[faultbench](https://github.com/mit-hun-k/faultbench)。接口参考 [Modal 批处理](https://modal.com/docs/guide/batch-processing)、[Verifiers v1](https://docs.primeintellect.ai/verifiers/v1/tasksets)；模型来自 [SmolLM2 官方仓库](https://huggingface.co/HuggingFaceTB/SmolLM2-135M-Instruct)。
-
-下一步可扩展真实业务工具版本变化、更多工作流、两个以上模型、更多生成预算、测试选择策略及独立外部接入。当前没有实现 LangGraph 原生适配器、完整 MCP server 或多租户平台，简历不应写这些功能已完成。
+提供的源码、补丁和 Git bundle 用于你检查后推送。未指定目标仓库，当前没有在线 PR。MIT 是本地版本的许可选择，发布前由仓库所有者确认署名与许可；模型和依赖各自保留原许可。

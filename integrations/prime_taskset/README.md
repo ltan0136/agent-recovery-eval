@@ -1,61 +1,84 @@
-# Prime Verifiers：工具轨迹故障诊断
+# Prime Verifiers：v0.2 多工作流静态诊断 Taskset
 
-这个独立包将 Recovery Eval Lite 的公开操作轨迹转成 **Verifiers 0.4.0 原生 v1 Taskset**。模型读取请求与工具轨迹，输出严格 JSON：
+这个独立包将 Agent Recovery Eval v0.2 的**结算后业务状态和已提交操作账本**转换为 Verifiers **0.4.0 原生 v1 Taskset**。模型读取请求及证据，输出严格 JSON：
 
 ```json
 {"duplicates": 0, "missing": 0, "success": true}
 ```
 
-评分器逐字段比较可信账本生成的答案，不调用大模型裁判。额外字段、重复 JSON 键、Markdown、布尔值冒充整数等均判为无效。`expected` 只存储在 TaskData 中，模型提示词仅由 `request` 和 `trace` 构造。
+这是静态证据诊断：模型不执行工具、不改变环境，也不参与故障恢复。它与主项目动态 `model` 命令及 MCP stdio 入口分别测量不同能力。
 
-**本任务测量已有轨迹的故障识别能力。它没有让模型执行或恢复操作，因此不能据此宣称模型具有 Agent 故障恢复能力。** 超时后的真实提交情况必须能从公开状态查询结果判断；无法判断的轨迹不应进入这个三字段任务。
+## 1. 字段与判定
 
-## 数据
-
-先由主项目导出 `data/diagnosis_cases.jsonl`。每行结构如下；`expected` 必须来自主项目可信账本评分器，不能由被测模型提供。
+每个 case 包含 `id`、`request`、`trace` 和可信 `expected`。当前 `export-diagnosis` 格式为：
 
 ```json
-{"id":"case-0001","request":{"operations":[{"operation_id":"op-1"}]},"trace":[{"tool":"query_state","result":{"committed_records":[{"operation_id":"op-1"}]}}],"expected":{"duplicates":0,"missing":0,"success":true}}
+{
+  "id": "evaluator-owned-case-and-agent-id",
+  "request": {"workflow_id": "ticket_dispatch", "goal": "...", "steps": []},
+  "trace": [
+    {"tool": "inspect_settled_state", "result": {}},
+    {"tool": "inspect_settled_ledger", "result": []}
+  ],
+  "expected": {"duplicates": 0, "missing": 0, "success": true}
+}
 ```
 
-`duplicates` 是每个请求操作超出一条的已提交记录总数；`missing` 是没有匹配已提交记录的请求操作数；两者均为零时 `success` 为真。调用次数不等于提交次数。公开输入禁止包含 `ground_truth`、`expected`、`oracle`、`reference` 等答案字段；这项检查不能替代人工泄漏审计。
+1. `duplicates`：每个请求步骤超出一次的已提交副作用总数。重试次数不等于副作用次数。
+2. `missing`：没有已提交副作用的请求步骤数量。错误内容另由完整成功判定处理。
+3. `success`：全部步骤恰好正确执行一次，业务参数、引用、先后依赖与资源约束均满足。
+4. **零重复、零漏做并不足以说明成功**：参数错误、引用错误或依赖违规仍须判失败。fixture 包含四个这种已知答案控制样本。
+5. 评分器严格逐字段匹配，不调用 LLM Judge。多余字段、重复 JSON 键、Markdown、布尔冒充整数等均无效。
 
-## 安装和本地运行
+`expected` 只存于 TaskData，不拼接进提示词。模型提示词只使用 `request` 和 `trace`，拒绝 `fault`、`target_step`、`oracle`、`expected`、`case_config` 等私有标签字段。MCP/运行配置仍需独立隔离文件权限；提示词检查不是 OS 沙箱。
 
-在本目录执行：
+## 2. 数据与重新导出
+
+随包提供 **40 个静态样本**：四工作流 × clean/lost_ack/permanent_failure × 三脚本策略 = 36 个运行，加四个错误参数控制。它是可核验 smoke fixture，不是充分覆盖或独立模型能力评测。
+
+在主项目根目录导出新数据：
+
+```bash
+python -m recovery_eval run --variants 1 --seeds 1 --faults clean,lost_ack,permanent_failure --policies no_retry,bounded_retry,idempotent_retry --out runs/prime-source
+python -m recovery_eval export-diagnosis --episodes runs/prime-source/episodes.jsonl --out runs/prime-diagnosis.jsonl
+```
+
+两个命令均要求新输出路径以保留原证据。可复现随包 fixture（包括四个控制样本）的生成器：
+
+```bash
+python integrations/prime_taskset/scripts/build_fixture.py --out /new/path/diagnosis_cases.jsonl
+```
+
+## 3. 安装与真正的本地验证
+
+在本目录：
 
 ```bash
 python -m pip install -e .
+python -m unittest discover -s tests -v
+python -c "from recovery_diagnosis import load_environment; tasks=load_environment().load(); assert len(tasks)==40; print(len(tasks), tasks[0].data.id)"
+```
+
+`load_environment()` 仅为本包便捷函数，返回原生 `DiagnosisTaskset`。真实 v1 Taskset 接口是 `.load()`，没有 `.get_task_ids()`；每项 ID 位于 `task.data.id`。此过程不启动 runtime、不请求模型、不上传平台。
+
+可用 CLI 验证运行配置：
+
+```bash
 vf-eval recovery_diagnosis --env.agent.harness.id null --env.agent.runtime.type subprocess --no-push -n 5 --dry-run
 ```
 
-`--dry-run` 只验证运行配置，不请求模型。真实评测还需要模型端点和对应密钥。例如提前在本机设置 `OPENAI_API_KEY` 后，运行：
+`--dry-run` 只解析验证配置，不能替代 Taskset 加载、评分器测试或真实推理。
+
+本次本地检查实际使用 Verifiers 0.4.0：加载全部 40 项任务、为每项构造真实 `Trace` 调用原生 reward（正确引用为 1.0、无效回答为 0.0），并通过配置 dry-run。当前独立测试包含旧观察字段拒绝、私有字段拒绝、唯一 ID 和四个错误内容控制；fixture 重新生成后与随包文件字节一致。未请求模型或上传平台。
+
+## 4. 可选真实模型端点
+
+设定用户自己的端点、模型名和相应密钥环境变量后：
 
 ```bash
-vf-eval recovery_diagnosis \
-  --env.agent.harness.id null \
-  --env.agent.runtime.type subprocess \
-  --client.base-url https://api.openai.com/v1 \
-  --client.api-key-var OPENAI_API_KEY \
-  --model gpt-4.1-mini \
-  --sampling.temperature 0 \
-  --no-push -n 5 -r 1 -c 2
+vf-eval recovery_diagnosis --env.agent.harness.id null --env.agent.runtime.type subprocess --client.base-url https://YOUR_PROVIDER/v1 --client.api-key-var PRIME_API_KEY --model YOUR_AVAILABLE_MODEL --sampling.temperature 0 --no-push -n 5 -r 1 -c 2
 ```
 
-上面的模型名称仅为端点配置示例；运行前请确认该提供商仍提供所选模型。为复现结果，请明确固定模型与采样参数。不要将 API 密钥写进数据、配置仓库或报告。通过 Prime Inference 运行时，改用该平台当前可用模型，并配置 `PRIME_API_KEY`。本项目不会自动充值或创建付费资源。
+这只是配置模板；项目没有自动配置模型账户、充值、创建实例、发布 Hub 或请求云端推理。请自行确认端点支持的模型名。自定义数据可传 `--env.taskset.data-path /absolute/path/to/diagnosis_cases.jsonl`。`subprocess` 用于这个不执行用户代码的静态任务，不提供容器级隔离。
 
-可通过 `--env.taskset.data-path /absolute/path/to/diagnosis_cases.jsonl` 改变数据位置。`subprocess` 适用于这个不执行用户代码的静态诊断任务；它不提供容器安全隔离。
-
-## 本地评分器验证
-
-```bash
-python -m unittest discover -s tests -v
-```
-
-测试和 dry-run 均不代表已经完成云端运行。发布到 Environments Hub、托管评测和 Modal 运行需要相应认证及计费配置。
-
-API 依据：
-
-1. https://github.com/PrimeIntellect-ai/verifiers/releases/tag/v0.4.0
-2. https://docs.primeintellect.ai/verifiers/v1/tasksets
-3. https://docs.primeintellect.ai/verifiers/v1/evaluation
+官方接口依据：[Verifiers v0.4.0](https://github.com/PrimeIntellect-ai/verifiers/releases/tag/v0.4.0)、[Tasksets](https://docs.primeintellect.ai/verifiers/v1/tasksets)、[Evaluation](https://docs.primeintellect.ai/verifiers/v1/evaluation)。版本核对日期：2026-10-17。
