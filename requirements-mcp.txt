@@ -1,2 +1,2 @@
 # MCP 2.0 replaces the historical FastMCP import with MCPServer.
-mcp==2.0.0
+mcp==2.2.0

@@ -17,7 +17,7 @@ classifiers = [
 ]
 
 [project.optional-dependencies]
-mcp = ["mcp==2.0.0"]
+mcp = ["mcp==2.2.0"]
 modal = ["modal==1.6.2"]
 
 [project.scripts]
