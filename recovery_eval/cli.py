@@ -109,6 +109,18 @@ def main(argv=None):
                 handle.write(json.dumps(diagnostic, ensure_ascii=False) + "\n")
         print(json.dumps({"diagnosis_cases": len(rows), "scope": "settled evidence diagnosis; not recovery"})); return
     cases = build_matrix(_csv(args.workflows), args.variants, args.seeds, _csv(args.faults))
+    # Reject bad arguments before an output directory or manifest exists, so a typo never
+    # leaves a "failed" run behind that blocks reusing the same --out path.
+    if args.command == "run":
+        policies = _csv(args.policies)
+        if not policies or any(p not in POLICIES for p in policies) or len(set(policies)) != len(policies):
+            parser.error("Policies must be distinct known policies")
+    if args.command == "model":
+        prompts = _csv(args.prompts)
+        if not prompts or any(p not in ("basic", "guarded") for p in prompts) or len(set(prompts)) != len(prompts):
+            parser.error("Prompts must be distinct basic/guarded variants")
+        if args.backend == "api" and not args.base_url:
+            parser.error("API backend requires --base-url")
     if args.command == "matrix":
         path = Path(args.out); path.parent.mkdir(parents=True, exist_ok=True)
         if path.exists():
@@ -138,9 +150,6 @@ def main(argv=None):
     write_json(directory / "manifest.json", metadata)
     try:
         if args.command == "run":
-            policies = _csv(args.policies)
-            if not policies or any(p not in POLICIES for p in policies) or len(set(policies)) != len(policies):
-                parser.error("Policies must be distinct known policies")
             jobs = ((case, policy) for case in cases for policy in policies)
             for case, policy in jobs:
                 row = run_scripted(case, policy, max_calls=args.max_tool_calls)
@@ -150,15 +159,10 @@ def main(argv=None):
             metadata["policies"] = policies
         else:
             from .agents import LocalTransformersAdapter, OpenAICompatibleAdapter, run_agent
-            prompts = _csv(args.prompts)
-            if not prompts or any(p not in ("basic", "guarded") for p in prompts) or len(set(prompts)) != len(prompts):
-                parser.error("Prompts must be distinct basic/guarded variants")
             if args.backend == "local":
                 adapter = LocalTransformersAdapter(args.model, revision=args.revision, cache_dir=args.cache_dir,
                     max_new_tokens=args.max_new_tokens, threads=args.threads, local_files_only=not args.allow_download)
             else:
-                if not args.base_url:
-                    parser.error("API backend requires --base-url")
                 adapter = OpenAICompatibleAdapter(args.model, args.base_url, api_key_env=args.api_key_env,
                                                  max_new_tokens=args.max_new_tokens)
             metadata["model_backend"] = adapter.describe()

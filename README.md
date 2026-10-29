@@ -85,7 +85,7 @@ recovery-eval model --backend api --model YOUR_MODEL --base-url https://YOUR_END
 
 ## 7. 结果文件与项目结构
 
-每次运行生成 `episodes.jsonl`、`summary.json`、`metrics.csv`、`example_traces.json`、自包含 `report.html` 和含校验和的 `manifest.json`。`progress.jsonl` 持续保存已完成回合，中断不会把它们变成成功运行。报告展示失败优先的代表轨迹，完整分母在 JSONL。
+每次运行生成 `episodes.jsonl`、`summary.json`、`metrics.csv`、`example_traces.json`、自包含 `report.html` 和含校验和的 `manifest.json`。`summary.json` 的 `seed_consistency` 另给出跨种子的 pass^k：同一工作流、业务变体和条件的全部种子都成功才算通过。种子改变故障落点和迟到／陈旧读调度，因此它能暴露只在部分步骤上能恢复的策略；默认矩阵下 `no_retry` 逐回合完成率 21.1%，pass^3 只有 12.5%。`progress.jsonl` 持续保存已完成回合，中断不会把它们变成成功运行。报告展示失败优先的代表轨迹，完整分母在 JSONL。
 
 | 路径 | 作用 |
 | --- | --- |

@@ -11,6 +11,7 @@
 5. 增加严格配对回归比较、按工作流和业务变体成簇的 bootstrap 区间、切片与门禁状态。
 6. 增加架构、Benchmark Card、审查、贡献、安全和 GitHub 提交文档与模板。
 7. 增加固定发布协议的回合级续跑工具，保留已完成失败、拒绝并发worker，并明确未知在途尝试的记录边界。
+8. 摘要与报告增加跨种子 pass^k（`seed_consistency`）；`verify_artifacts.py` 仍接受此前没有该字段的摘要。CLI 在创建输出目录前校验 `--policies`、`--prompts` 与 `--base-url`，参数错误不再留下失败的运行目录。
 
 ### CLI 迁移
 

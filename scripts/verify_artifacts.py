@@ -37,7 +37,10 @@ def verify(directory: Path) -> dict:
             raise ValueError(f"Checksum mismatch: {name}")
     rows = read_jsonl(directory / "episodes.jsonl")
     saved = json.loads((directory / "summary.json").read_text(encoding="utf-8"))
-    if saved != summarize(rows):
+    expected = summarize(rows)
+    if "seed_consistency" not in saved:
+        expected.pop("seed_consistency")  # summaries written before pass^k was added
+    if saved != expected:
         raise ValueError("Summary differs from the raw episodes")
     if (directory / "progress.jsonl").exists() and read_jsonl(directory / "progress.jsonl") != rows:
         raise ValueError("Final episodes differ from the complete progress evidence")

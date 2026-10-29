@@ -30,6 +30,31 @@ def source_hashes() -> dict[str, str]:
     return {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(directory.glob("*.py"))}
 
 
+def seed_consistency(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """pass^k across seeds: a (workflow, variant, condition) family passes only if every seed succeeds.
+
+    Seeds move the fault onto a different step and change stale/late schedules, so a policy
+    that only recovers on some steps scores lower here than on the per-episode success rate.
+    ``k`` is the smallest number of seeds observed in any family of the slice.
+    """
+    families = defaultdict(list)
+    for row in rows:
+        families[(row["agent_id"], row["workflow"], row["variant_id"], row["fault"])].append(bool(row["success"]))
+    slices = defaultdict(list)
+    for (agent, _workflow, _variant, fault), outcomes in families.items():
+        slices[(agent, "all")].append(outcomes)
+        slices[(agent, fault)].append(outcomes)
+    result = []
+    for (agent, fault), groups in sorted(slices.items()):
+        passed = sum(all(outcomes) for outcomes in groups)
+        episodes = [ok for outcomes in groups for ok in outcomes]
+        result.append({"agent_id": agent, "fault": fault, "families": len(groups),
+                       "k": min(len(outcomes) for outcomes in groups),
+                       "all_seeds_successes": passed, "all_seeds_success_rate": passed / len(groups),
+                       "per_episode_success_rate": sum(episodes) / len(episodes)})
+    return result
+
+
 def summarize(rows: list[dict[str, Any]]) -> dict[str, Any]:
     if not rows:
         raise ValueError("Cannot summarize an empty run")
@@ -76,7 +101,7 @@ def summarize(rows: list[dict[str, Any]]) -> dict[str, Any]:
             "agents": sorted({r["agent_id"] for r in rows}),
             "agent_kinds": sorted({r["agent_kind"] for r in rows}),
             "run_status_counts": dict(Counter(r.get("run_status", "scripted_completed") for r in rows)),
-            "metrics": metrics}
+            "metrics": metrics, "seed_consistency": seed_consistency(rows)}
 
 
 def _safe_data(value: Any) -> str:
@@ -86,8 +111,14 @@ def _safe_data(value: Any) -> str:
 def render_report(summary: dict, traces: list[dict], manifest: dict, output: Path) -> None:
     """Render exact tables and interactive trace filters; no remote assets."""
     totals = [m for m in summary["metrics"] if m["workflow"] == "all" and m["fault"] == "all"]
+    consistency = {c["agent_id"]: c for c in summary.get("seed_consistency", []) if c["fault"] == "all"}
+
+    def pass_k(agent: str) -> str:
+        c = consistency.get(agent)
+        return f"{c['all_seeds_success_rate']:.1%} (k={c['k']})" if c and c["k"] >= 2 else "—"
+
     table = "".join("<tr>" + f"<td>{html.escape(m['agent_id'])}</td><td>{html.escape(m['agent_kind'])}</td><td>{m['episodes']}</td>" +
-                    f"<td>{m['success_rate']:.1%}</td><td>{m['duplicate_episode_rate']:.1%}</td>" +
+                    f"<td>{m['success_rate']:.1%}</td><td>{pass_k(m['agent_id'])}</td><td>{m['duplicate_episode_rate']:.1%}</td>" +
                     f"<td>{m['missing_episode_rate']:.1%}</td><td>{m['false_success_rate']:.1%}</td>" +
                     f"<td>{m['mean_tool_calls']:.2f}</td></tr>" for m in totals)
     kinds = ", ".join(summary["agent_kinds"])
@@ -99,7 +130,7 @@ body{margin:0;background:#f2f5f8;color:#193147;font:15px/1.7 system-ui,sans-seri
 <p>固定公开步骤计划、业务参数和故障条件，以最终状态和提交账本判断结果。</p>
 <div class="cards"><div class="card"><strong>__EPISODES__</strong>执行回合</div><div class="card"><strong>__WORKFLOWS__</strong>工作流</div><div class="card"><strong>__FAMILIES__</strong>业务参数族</div><div class="card"><strong>__FAULTS__</strong>条件（含对照）</div></div>
 <div class="notice">本报告的执行类型：<strong>__KINDS__</strong>。规则策略与真实模型分别标记；模型的格式错误、截断、工具错误和基础设施错误保留在原始轨迹中。公开计划意味着本任务测执行与恢复，不测隐藏流程规划。云端任务：__CLOUD__。</div>
-<h2>1. 总体结果</h2><div class="scroll"><table><tr><th>Agent / 策略</th><th>执行类型</th><th>回合</th><th>完成率</th><th>重复回合率</th><th>漏做回合率</th><th>错误宣称成功率</th><th>平均调用</th></tr>__TABLE__</table></div>
+<h2>1. 总体结果</h2><div class="scroll"><table><tr><th>Agent / 策略</th><th>执行类型</th><th>回合</th><th>完成率</th><th>跨种子全通过 pass^k</th><th>重复回合率</th><th>漏做回合率</th><th>错误宣称成功率</th><th>平均调用</th></tr>__TABLE__</table></div><p class="muted">pass^k：同一工作流、业务变体与条件的全部 k 个种子都成功才算通过。种子改变故障落在哪一步及迟到／陈旧读调度，所以它比逐回合完成率更能暴露“只在部分步骤上能恢复”的策略；少于 2 个种子时显示 —。</p>
 <h2>2. 按工作流与故障查看</h2><label>Agent <select id="agent"></select></label><label>工作流 <select id="workflow"></select></label><label>条件 <select id="fault"></select></label><div id="slice" class="notice"></div>
 <h2>3. 可检查的原始轨迹样例</h2><p class="muted">报告内展示每个 Agent／工作流／条件下的代表样例；全部回合在 episodes.jsonl。失败优先，包含原始模型输出及工具返回。</p><input id="search" placeholder="搜索 case ID、状态或故障"><div id="traces"></div>
 <h2>4. 复现与限制</h2><p>生成器参数、模型 revision、预算、代码 SHA256、run 状态和文件校验保存在 manifest.json。条件配对、bootstrap 与放行决定由独立 compare 命令生成。本报告不给多业务总体泛化或新算法结论；模拟环境的幂等契约和永久故障边界必须一并解释。</p>
