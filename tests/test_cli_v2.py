@@ -214,6 +214,58 @@ class CliV2Tests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "different agent kinds"):
             summarize([row, changed])
 
+    def test_invalid_run_arguments_leave_no_output_directory(self):
+        output = self.root / "typo"
+        for args in (["run", "--policies", "idempotent_retry,not_a_policy"],
+                     ["model", "--prompts", "basic,unknown"],
+                     ["model", "--backend", "api", "--model", "m"]):
+            with self.subTest(args=args), self.assertRaises(SystemExit):
+                self.invoke([*args, "--out", output])
+            self.assertFalse(output.exists())
+
+    def test_seed_consistency_requires_every_seed_of_a_family_to_pass(self):
+        cases = build_matrix("ticket_dispatch", 2, 2, "clean")
+        rows = [run_scripted(case) for case in cases]
+        self.assertTrue(all(row["success"] for row in rows))
+        rows[0]["success"] = False  # variant 1, seed 0 fails; seed 1 of that variant still passes
+        consistency = {c["fault"]: c for c in summarize(rows)["seed_consistency"]}
+        for fault in ("all", "clean"):
+            self.assertEqual(consistency[fault]["families"], 2)
+            self.assertEqual(consistency[fault]["k"], 2)
+            self.assertEqual(consistency[fault]["all_seeds_successes"], 1)
+            self.assertEqual(consistency[fault]["all_seeds_success_rate"], 0.5)
+            self.assertEqual(consistency[fault]["per_episode_success_rate"], 0.75)
+
+    def test_report_shows_pass_k_only_with_repeated_seeds(self):
+        single = finalize_run([self.scripted_row()], self.root / "one-seed")
+        self.assertEqual(single["seed_consistency"][0]["k"], 1)
+        self.assertNotIn("(k=", (self.root / "one-seed" / "report.html").read_text())
+        rows = [run_scripted(case) for case in build_matrix("ticket_dispatch", 1, 3, "clean")]
+        finalize_run(rows, self.root / "three-seeds")
+        self.assertIn("100.0% (k=3)", (self.root / "three-seeds" / "report.html").read_text())
+
+    def test_artifact_verifier_accepts_summaries_written_before_pass_k(self):
+        from scripts.verify_artifacts import verify
+        rows = [run_scripted(case) for case in build_matrix("ticket_dispatch", 1, 2, "clean")]
+        output = self.root / "legacy"
+        finalize_run(rows, output, {"command": "test"})
+        self.assertEqual(verify(output)["episodes"], 2)
+        summary_path = output / "summary.json"
+        legacy = json.loads(summary_path.read_text())
+        del legacy["seed_consistency"]
+        summary_path.write_text(json.dumps(legacy, ensure_ascii=False, indent=2) + "\n")
+        manifest_path = output / "manifest.json"
+        manifest = json.loads(manifest_path.read_text())
+        manifest["files_sha256"]["summary.json"] = hashlib.sha256(summary_path.read_bytes()).hexdigest()
+        manifest_path.write_text(json.dumps(manifest))
+        self.assertEqual(verify(output)["episodes"], 2)
+        legacy["episodes"] = 3
+        summary_path.write_text(json.dumps(legacy))
+        manifest["files_sha256"]["summary.json"] = hashlib.sha256(summary_path.read_bytes()).hexdigest()
+        manifest_path.write_text(json.dumps(manifest))
+        with self.assertRaisesRegex(ValueError, "Summary differs"):
+            verify(output)
+
     def test_finalization_preserves_start_hashes_and_marks_source_changes(self):
         output = self.root / "provenance"
         with patch("recovery_eval.artifacts.source_hashes", return_value={"engine.py": "end"}):

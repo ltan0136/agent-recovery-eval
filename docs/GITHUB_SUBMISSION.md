@@ -1,6 +1,6 @@
 # GitHub 提交与 PR 审查说明
 
-代码已推送至已核实的目标仓库 [ltan0136/agent-recovery-eval](https://github.com/ltan0136/agent-recovery-eval)。[草稿 PR #1](https://github.com/ltan0136/agent-recovery-eval/pull/1) 为 `main` ← `feat/multi-workflow-evaluation`，尚未合并；原始本地实验记录与审查包继续保留。[CI 运行 39036962895](https://github.com/ltan0136/agent-recovery-eval/actions/runs/39036962895) 的 Python 3.11／3.12／3.13 核心任务及可选集成任务共四项均已通过。
+代码已推送至已核实的目标仓库 [ltan0136/agent-recovery-eval](https://github.com/ltan0136/agent-recovery-eval)。[PR #1](https://github.com/ltan0136/agent-recovery-eval/pull/1)（`main` ← `feat/multi-workflow-evaluation`）已于 2026-10-17 合并；原始本地实验记录与审查包继续保留。[CI 运行 39036962895](https://github.com/ltan0136/agent-recovery-eval/actions/runs/39036962895) 的 Python 3.11／3.12／3.13 核心任务及可选集成任务共四项均已通过。
 
 ## 1. 先区分发布项目和贡献上游
 
