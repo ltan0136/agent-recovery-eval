@@ -48,6 +48,9 @@ def main(argv=None):
     model.add_argument("--max-tool-calls", type=int, default=12)
     model.add_argument("--format-retries", type=int, choices=(0, 1), default=1)
     model.add_argument("--prompts", default="basic,guarded")
+    model.add_argument("--tool-protocol", choices=("json_text", "native"), default="json_text",
+                       help="json_text: one JSON action per text reply (all backends); "
+                            "native: provider tools/tool_calls (api backend only)")
     model.add_argument("--base-url")
     model.add_argument("--api-key-env", default="PRIME_API_KEY")
     model.add_argument("--out", default="runs/model")
@@ -121,6 +124,8 @@ def main(argv=None):
             parser.error("Prompts must be distinct basic/guarded variants")
         if args.backend == "api" and not args.base_url:
             parser.error("API backend requires --base-url")
+        if args.tool_protocol == "native" and args.backend != "api":
+            parser.error("--tool-protocol native requires --backend api")
     if args.command == "matrix":
         path = Path(args.out); path.parent.mkdir(parents=True, exist_ok=True)
         if path.exists():
@@ -146,7 +151,8 @@ def main(argv=None):
         metadata.update({"requested_backend": args.backend, "requested_model": args.model,
                          "requested_revision": args.revision, "prompt_variants": _csv(args.prompts),
                          "max_turns": args.max_turns, "max_new_tokens": args.max_new_tokens,
-                         "format_retries": args.format_retries, "allow_download": args.allow_download})
+                         "format_retries": args.format_retries, "allow_download": args.allow_download,
+                         "tool_protocol": args.tool_protocol})
     write_json(directory / "manifest.json", metadata)
     try:
         if args.command == "run":
@@ -170,7 +176,8 @@ def main(argv=None):
             for case in cases:
                 for prompt in prompts:
                     row = run_agent(case, adapter, prompt_variant=prompt, max_turns=args.max_turns,
-                                    max_tool_calls=args.max_tool_calls, format_retries=args.format_retries)
+                                    max_tool_calls=args.max_tool_calls, format_retries=args.format_retries,
+                                    tool_protocol=args.tool_protocol)
                     rows.append(row)
                     with progress_path.open("a", encoding="utf-8") as handle:
                         handle.write(json.dumps(row, ensure_ascii=False) + "\n")

@@ -68,11 +68,17 @@ recovery-eval model --backend local --model Qwen/Qwen2.5-0.5B-Instruct --revisio
 
 首次需要公开模型下载和 CPU 推理依赖。默认只使用本地缓存；`--allow-download` 才允许首次下载。离线缓存可通过 `--cache-dir` 指定。默认覆盖四个工作流、一个参数变体、一个种子、`clean/lost_ack` 和 `basic/guarded` 两种提示，共 16 回合。一次显式格式纠正计入 8 次模型请求预算，无静默提取或修复。
 
-也支持文本 Chat Completions 的 OpenAI-compatible 端点：
+也支持 OpenAI-compatible 的 Chat Completions 端点：
 
 ```bash
 # Set PRIME_API_KEY in your environment before running.
 recovery-eval model --backend api --model YOUR_MODEL --base-url https://YOUR_ENDPOINT/v1 --api-key-env PRIME_API_KEY --out runs/api
+```
+
+API 后端可用 `--tool-protocol native` 改用原生 function calling：同一组工具契约放进请求的 `tools` 字段，外加一个 `finish` 函数，读取返回的 `tool_calls`，工具结果以 `tool` 消息回传。两种协议的提示建议、公开契约和预算相同，`agent_id` 带 `:native` 后缀，便于把执行协议本身当作对照因素比较。每回合仍只允许一个动作：一次返回多个调用时一个都不执行，每个调用 id 都收到错误回复并计入格式纠正。本地后端只支持默认的 `json_text` 协议。
+
+```bash
+recovery-eval model --backend api --tool-protocol native --model YOUR_MODEL --base-url https://YOUR_ENDPOINT/v1 --api-key-env PRIME_API_KEY --out runs/api-native
 ```
 
 密钥只从环境变量读取；模型和端点使用自己的配置。本次未调用付费模型 API。调用数和 token 上限限制请求规模，不构成美元硬预算。API 路径测试含 mock，不等于端点实测。
@@ -85,7 +91,7 @@ recovery-eval model --backend api --model YOUR_MODEL --base-url https://YOUR_END
 
 ## 7. 结果文件与项目结构
 
-每次运行生成 `episodes.jsonl`、`summary.json`、`metrics.csv`、`example_traces.json`、自包含 `report.html` 和含校验和的 `manifest.json`。`summary.json` 的 `seed_consistency` 另给出跨种子全通过率：同一工作流、业务变体和条件的全部种子都成功才算通过。种子改变故障落点和迟到／陈旧读调度，因此它能暴露只在部分步骤上能恢复的策略；默认矩阵下 `no_retry` 逐回合完成率 21.1%，3 个种子全通过只有 12.5%。它不是 τ-bench 的 pass^k（同一任务重复 k 次），见[相关工作](docs/RELATED_WORK.md)。`progress.jsonl` 持续保存已完成回合，中断不会把它们变成成功运行。报告展示失败优先的代表轨迹，完整分母在 JSONL。
+每次运行生成 `episodes.jsonl`、`summary.json`、`metrics.csv`、`example_traces.json`、自包含 `report.html` 和含校验和的 `manifest.json`。`summary.json` 的 `seed_consistency` 另给出跨种子全通过率：同一工作流、业务变体和条件的全部种子都成功才算通过。种子改变故障落点和迟到／陈旧读调度，因此它能暴露只在部分步骤上能恢复的策略；默认矩阵下 `no_retry` 逐回合完成率 21.1%，3 个种子全通过只有 12.5%。它不是 τ-bench 的 pass^k（同一任务重复 k 次），见[相关工作](docs/RELATED_WORK.md)。`conditional_recovery` 给出条件恢复率（CRSR）：只看同一 Agent 在同一工作流、业务变体与种子的 clean 回合成功时的故障回合，永久失败按设计不可恢复，不计入 `recoverable_faults` 汇总。`retry_permission` 逐决策检查重试是否有依据：某步骤写入返回 timeout 后再次写入即为一次重试决策；按公开服务契约，只有服务支持幂等且复用同一 `operation_id` 时才有依据，其余重试即使成功也只是侥幸。默认矩阵下 `bounded_retry` 在 pre_commit_timeout 条件 48/48 完成，但全部依靠无依据重试；`idempotent_retry` 的 336 次重试全部有依据。`progress.jsonl` 持续保存已完成回合，中断不会把它们变成成功运行。报告展示失败优先的代表轨迹，完整分母在 JSONL。
 
 | 路径 | 作用 |
 | --- | --- |

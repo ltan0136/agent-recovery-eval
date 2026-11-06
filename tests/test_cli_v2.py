@@ -218,7 +218,8 @@ class CliV2Tests(unittest.TestCase):
         output = self.root / "typo"
         for args in (["run", "--policies", "idempotent_retry,not_a_policy"],
                      ["model", "--prompts", "basic,unknown"],
-                     ["model", "--backend", "api", "--model", "m"]):
+                     ["model", "--backend", "api", "--model", "m"],
+                     ["model", "--backend", "local", "--tool-protocol", "native"]):
             with self.subTest(args=args), self.assertRaises(SystemExit):
                 self.invoke([*args, "--out", output])
             self.assertFalse(output.exists())
@@ -252,7 +253,8 @@ class CliV2Tests(unittest.TestCase):
         self.assertEqual(verify(output)["episodes"], 2)
         summary_path = output / "summary.json"
         legacy = json.loads(summary_path.read_text())
-        del legacy["seed_consistency"]
+        for key in ("seed_consistency", "conditional_recovery", "retry_permission"):
+            del legacy[key]
         summary_path.write_text(json.dumps(legacy, ensure_ascii=False, indent=2) + "\n")
         manifest_path = output / "manifest.json"
         manifest = json.loads(manifest_path.read_text())
