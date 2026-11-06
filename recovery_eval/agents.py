@@ -1,9 +1,12 @@
 """Bounded, observable language-model agents that execute real simulator tools.
 
-Backends share a plain-text JSON action protocol. No native function-calling
-support is assumed, no answer is silently repaired, and no model is loaded or
-remote request sent at import time. Rule-policy results are never mixed into
-language-model episodes.
+Two tool protocols are supported. ``json_text`` (the default, every backend)
+asks for one JSON action per reply in plain text. ``native`` (OpenAI-compatible
+backend only) sends the same tool contracts in the request's ``tools`` field and
+reads the provider's ``tool_calls``, so the harness itself can be compared as a
+factor. No answer is silently repaired, and no model is loaded or remote request
+sent at import time. Rule-policy results are never mixed into language-model
+episodes.
 """
 
 from __future__ import annotations
@@ -23,6 +26,8 @@ import urllib.request
 
 
 DEFAULT_MODEL = "HuggingFaceTB/SmolLM2-135M-Instruct"
+TOOL_PROTOCOLS = ("json_text", "native")
+FINISH_TOOL = "finish"
 
 
 class ModelAdapterError(RuntimeError):
@@ -43,6 +48,9 @@ class ModelResponse:
     usage: dict[str, int | float | None] = field(default_factory=dict)
     finish_reason: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
+    # Native protocol only: the provider's tool calls, normalised to
+    # [{"id": str, "type": "function", "function": {"name": str, "arguments": str}}].
+    tool_calls: list[dict[str, Any]] | None = None
 
 
 class ModelAdapter(Protocol):
@@ -181,6 +189,7 @@ class OpenAICompatibleAdapter:
     """
 
     kind = "api_model"
+    supports_native_tools = True
 
     def __init__(self, model_id: str, base_url: str, *, api_key_env: str = "PRIME_API_KEY",
                  max_new_tokens: int = 128, timeout_seconds: float = 60):
@@ -200,12 +209,15 @@ class OpenAICompatibleAdapter:
         self.max_new_tokens = _positive_integer(max_new_tokens, "max_new_tokens", 4096)
         self.timeout_seconds = timeout_seconds
 
-    def complete(self, messages: list[dict[str, str]]) -> ModelResponse:
+    def complete(self, messages: list[dict[str, Any]],
+                 tools: list[dict[str, Any]] | None = None) -> ModelResponse:
         key = os.environ.get(self.api_key_env)
         if not key:
             raise ModelAdapterError("Required API credential environment variable is absent; no request sent.", code="missing_credential")
         payload = {"model": self.model_id, "messages": messages,
                    "max_tokens": self.max_new_tokens, "temperature": 0}
+        if tools is not None:
+            payload["tools"] = tools
         request = urllib.request.Request(
             self.base_url + "/chat/completions", data=json.dumps(payload).encode("utf-8"),
             headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
@@ -217,8 +229,15 @@ class OpenAICompatibleAdapter:
                 data = json.load(response)
             choice = data["choices"][0]
             raw = choice["message"]["content"]
-            if not isinstance(raw, str):
-                raise ValueError("Expected a text response")
+            tool_calls = None
+            if tools is None:
+                if not isinstance(raw, str):
+                    raise ValueError("Expected a text response")
+            else:
+                raw = "" if raw is None else raw
+                if not isinstance(raw, str):
+                    raise ValueError("Expected text or null content")
+                tool_calls = _normalise_tool_calls(choice["message"].get("tool_calls"))
             provider_usage = data.get("usage") or {}
             if not isinstance(provider_usage, dict):
                 raise ValueError("Invalid usage object")
@@ -240,14 +259,33 @@ class OpenAICompatibleAdapter:
             metadata={"token_ids_available": False,
                       "token_ids_note": "The chat endpoint does not expose generated token IDs.",
                       "finish_reason_source": "provider_response"},
+            tool_calls=tool_calls,
         )
 
     def describe(self) -> dict[str, Any]:
-        return {"backend": "openai_compatible_text", "model_id": self.model_id,
+        # Which protocol an episode used is recorded per row as ``tool_protocol``.
+        return {"backend": "openai_compatible_chat", "model_id": self.model_id,
                 "base_url": self.base_url, "max_new_tokens": self.max_new_tokens,
                 "temperature": 0, "timeout_seconds": self.timeout_seconds,
-                "native_function_calling": False, "implicit_network_retries": 0,
-                "credentials_logged": False}
+                "tool_protocols": list(TOOL_PROTOCOLS), "parallel_tool_calls_requested": False,
+                "implicit_network_retries": 0, "credentials_logged": False}
+
+
+def _normalise_tool_calls(value: Any) -> list[dict[str, Any]]:
+    """Keep the provider's calls verbatim except for dropping unknown fields."""
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise ValueError("tool_calls must be a list")
+    calls = []
+    for item in value:
+        function = item["function"]
+        if (not isinstance(item.get("id"), str) or not isinstance(function.get("name"), str)
+                or not isinstance(function.get("arguments"), str)):
+            raise ValueError("Malformed tool call")
+        calls.append({"id": item["id"], "type": "function",
+                      "function": {"name": function["name"], "arguments": function["arguments"]}})
+    return calls
 
 
 def _unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -283,18 +321,62 @@ def parse_action(raw: str) -> dict[str, Any]:
     raise ValueError("Expected exactly {tool, arguments} or {finish: {success, optional message}}")
 
 
+def parse_native_action(tool_calls: list[dict[str, Any]] | None) -> dict[str, Any]:
+    """Parse exactly one native tool call with the same strictness as parse_action."""
+    if not tool_calls:
+        raise ValueError("No tool call; call exactly one tool or finish")
+    if len(tool_calls) != 1:
+        raise ValueError(f"{len(tool_calls)} tool calls in one turn; call exactly one")
+    function = tool_calls[0]["function"]
+    arguments = json.loads(function["arguments"], object_pairs_hook=_unique_object,
+                           parse_constant=_reject_constant)
+    if not isinstance(arguments, dict):
+        raise ValueError("Tool call arguments must be a JSON object")
+    if not function["name"]:
+        raise ValueError("A tool call requires a nonempty name")
+    if function["name"] == FINISH_TOOL:
+        return parse_action(json.dumps({"finish": arguments}))
+    return {"tool": function["name"], "arguments": arguments}
+
+
+def native_tools(tool_schemas: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The public tool contracts plus a finish function, in the provider's tools format."""
+    if any(schema["function"]["name"] == FINISH_TOOL for schema in tool_schemas):
+        raise ValueError(f"A business tool may not be named {FINISH_TOOL!r}")
+    finish = {"type": "function", "function": {
+        "name": FINISH_TOOL,
+        "description": "End the episode. Use success=false if tool observations do not establish completion.",
+        "parameters": {"type": "object", "properties": {"success": {"type": "boolean"},
+                                                        "message": {"type": "string"}},
+                       "required": ["success"], "additionalProperties": False}}}
+    return deepcopy(tool_schemas) + [finish]
+
+
 def build_messages(public_task: dict[str, Any], tool_schemas: list[dict[str, Any]],
-                   prompt_variant: str = "basic") -> list[dict[str, str]]:
-    """Use public task/tool contracts only, never case metadata or oracle state."""
+                   prompt_variant: str = "basic", tool_protocol: str = "json_text") -> list[dict[str, str]]:
+    """Use public task/tool contracts only, never case metadata or oracle state.
+
+    Both protocols carry the same contracts and advice. ``json_text`` puts the
+    tool contracts in the system message; ``native`` sends them as ``tools``.
+    """
     if prompt_variant not in ("basic", "guarded"):
         raise ValueError("prompt_variant must be basic or guarded")
-    instruction = (
-        "Execute the requested workflow using tools. Return only ONE JSON object per turn: "
-        '{"tool":"tool_name","arguments":{...}} or {"finish":{"success":true}}. '
-        "Use false if you cannot establish completion. No prose, Markdown, or multiple actions. "
-        "Tool responses arrive as user messages with an observation field. "
-        "Follow the public step plan, use exact task values, and complete every requested effect exactly once."
-    )
+    if tool_protocol not in TOOL_PROTOCOLS:
+        raise ValueError(f"tool_protocol must be one of {', '.join(TOOL_PROTOCOLS)}")
+    if tool_protocol == "native":
+        instruction = (
+            "Execute the requested workflow using the provided tools. Call exactly ONE tool per turn. "
+            f"When done, call {FINISH_TOOL} with success true, or false if you cannot establish completion. "
+            "Follow the public step plan, use exact task values, and complete every requested effect exactly once."
+        )
+    else:
+        instruction = (
+            "Execute the requested workflow using tools. Return only ONE JSON object per turn: "
+            '{"tool":"tool_name","arguments":{...}} or {"finish":{"success":true}}. '
+            "Use false if you cannot establish completion. No prose, Markdown, or multiple actions. "
+            "Tool responses arrive as user messages with an observation field. "
+            "Follow the public step plan, use exact task values, and complete every requested effect exactly once."
+        )
     if prompt_variant == "guarded":
         instruction += (
             " A write timeout means its outcome is UNKNOWN. Reuse a stable operation_id for each "
@@ -303,18 +385,26 @@ def build_messages(public_task: dict[str, Any], tool_schemas: list[dict[str, Any
             "when tool observations establish all required effects."
         )
     # The schema is public for all compared agents; the guarded variant adds advice only.
-    instruction += "\nAvailable tool contracts: " + json.dumps(tool_schemas, separators=(",", ":"), ensure_ascii=False)
+    if tool_protocol == "json_text":
+        instruction += "\nAvailable tool contracts: " + json.dumps(tool_schemas, separators=(",", ":"), ensure_ascii=False)
     return [{"role": "system", "content": instruction},
             {"role": "user", "content": json.dumps(public_task, separators=(",", ":"), ensure_ascii=False)}]
 
 
 def run_agent(case: dict[str, Any], adapter: ModelAdapter, *, prompt_variant: str = "basic",
-              max_turns: int = 8, max_tool_calls: int = 12, format_retries: int = 1) -> dict[str, Any]:
+              max_turns: int = 8, max_tool_calls: int = 12, format_retries: int = 1,
+              tool_protocol: str = "json_text") -> dict[str, Any]:
     """Run a real model-in-the-loop recovery episode with independent scoring.
 
     Every model request counts against max_turns, including a format correction.
     The optional correction is explicit in messages and model_calls. At most one
     correction is allowed per episode. The oracle is consulted only by finish().
+
+    With ``tool_protocol="native"`` the contracts go in the request's ``tools``
+    field, each executed call is answered by a ``tool`` message, and a reply with
+    zero or several tool calls is an invalid action: nothing is executed, every
+    returned call id still receives an error ``tool`` message, and the episode
+    continues only if a format correction remains.
     """
     from .engine import Environment
 
@@ -322,9 +412,18 @@ def run_agent(case: dict[str, Any], adapter: ModelAdapter, *, prompt_variant: st
     _positive_integer(max_tool_calls, "max_tool_calls", 100)
     if type(format_retries) is not int or format_retries not in (0, 1):
         raise ValueError("format_retries must be 0 or 1")
+    if tool_protocol not in TOOL_PROTOCOLS:
+        raise ValueError(f"tool_protocol must be one of {', '.join(TOOL_PROTOCOLS)}")
+    native = tool_protocol == "native"
+    if native and not getattr(adapter, "supports_native_tools", False):
+        raise ValueError("This backend does not support the native tool protocol")
     environment = Environment(case, max_calls=max_tool_calls)
-    messages = build_messages(environment.public_task, environment.tool_schemas, prompt_variant)
-    prompt_hash = hashlib.sha256(json.dumps(messages, sort_keys=True).encode()).hexdigest()
+    messages: list[dict[str, Any]] = build_messages(
+        environment.public_task, environment.tool_schemas, prompt_variant, tool_protocol)
+    tools = native_tools(environment.tool_schemas) if native else None
+    # The json_text hash covers the messages only, as before, so it stays comparable with older runs.
+    hashed = {"messages": messages, "tools": tools} if native else messages
+    prompt_hash = hashlib.sha256(json.dumps(hashed, sort_keys=True).encode()).hexdigest()
     model_calls: list[dict[str, Any]] = []
     claimed_success = False
     status = "turn_budget_exhausted"
@@ -334,7 +433,8 @@ def run_agent(case: dict[str, Any], adapter: ModelAdapter, *, prompt_variant: st
     for turn in range(1, max_turns + 1):
         started = time.perf_counter()
         try:
-            response = adapter.complete(deepcopy(messages))
+            response = (adapter.complete(deepcopy(messages), tools=deepcopy(tools)) if native
+                        else adapter.complete(deepcopy(messages)))
             if not isinstance(response, ModelResponse):
                 raise TypeError("Adapters must return ModelResponse")
         except Exception as error:
@@ -354,20 +454,40 @@ def run_agent(case: dict[str, Any], adapter: ModelAdapter, *, prompt_variant: st
                 "latency_seconds": response.latency_seconds, "usage": deepcopy(response.usage),
                 "finish_reason": response.finish_reason, "metadata": deepcopy(response.metadata),
                 "format_correction_request": correction_request}
+        returned_calls = list(response.tool_calls or []) if native else []
+        if native:
+            call["raw_tool_calls"] = deepcopy(response.tool_calls)
         correction_request = False
         model_calls.append(call)
-        messages.append({"role": "assistant", "content": response.text})
+        if native:
+            assistant: dict[str, Any] = {"role": "assistant", "content": response.text or None}
+            if returned_calls:
+                assistant["tool_calls"] = deepcopy(returned_calls)
+            messages.append(assistant)
+        else:
+            messages.append({"role": "assistant", "content": response.text})
         try:
-            action = parse_action(response.text)
-        except (ValueError, TypeError) as error:
+            action = parse_native_action(returned_calls) if native else parse_action(response.text)
+        except (ValueError, TypeError, KeyError) as error:
             call.update({"status": "invalid_action", "parse_error": str(error)})
+            if native:
+                # Every returned call id must be answered before the next request.
+                for item in returned_calls:
+                    messages.append({"role": "tool", "tool_call_id": item["id"], "content": json.dumps(
+                        {"observation": {"error": {"type": "invalid_action", "message":
+                         f"{error}. No tool was executed."}}}, ensure_ascii=False)})
             if corrections < format_retries:
                 corrections += 1
-                messages.append({"role": "user", "content": (
-                    "FORMAT ERROR. Your entire previous reply was not a valid action. "
-                    'Reply only {"tool":"tool_name","arguments":{...}} or '
-                    '{"finish":{"success":true}} using a JSON boolean. Do not explain.'
-                )})
+                if native:
+                    if not returned_calls:
+                        messages.append({"role": "user", "content": (
+                            f"FORMAT ERROR. Call exactly one of the provided tools, or {FINISH_TOOL}. Do not reply in prose.")})
+                else:
+                    messages.append({"role": "user", "content": (
+                        "FORMAT ERROR. Your entire previous reply was not a valid action. "
+                        'Reply only {"tool":"tool_name","arguments":{...}} or '
+                        '{"finish":{"success":true}} using a JSON boolean. Do not explain.'
+                    )})
                 correction_request = True
                 continue
             status = "invalid_action"
@@ -385,15 +505,19 @@ def run_agent(case: dict[str, Any], adapter: ModelAdapter, *, prompt_variant: st
         result = environment.invoke(action["tool"], action["arguments"])
         tool_calls += 1
         call.update({"status": "tool_executed", "tool_response": deepcopy(result)})
-        messages.append({"role": "user", "content": json.dumps(
-            {"observation": {"tool": action["tool"], "response": result}},
-            separators=(",", ":"), ensure_ascii=False,
-        )})
+        observation = json.dumps({"observation": {"tool": action["tool"], "response": result}},
+                                 separators=(",", ":"), ensure_ascii=False)
+        if native:
+            messages.append({"role": "tool", "tool_call_id": returned_calls[0]["id"], "content": observation})
+        else:
+            messages.append({"role": "user", "content": observation})
+    suffix = ":native" if native else ""
     row = environment.finish(
-        claimed_success, agent_id=f"{adapter.model_id}:{prompt_variant}", agent_kind=adapter.kind
+        claimed_success, agent_id=f"{adapter.model_id}:{prompt_variant}{suffix}", agent_kind=adapter.kind
     )
     row.update({"evaluation_mode": "live_model_recovery", "model": adapter.model_id,
                 "model_backend": adapter.describe(), "prompt_variant": prompt_variant,
+                "tool_protocol": tool_protocol,
                 "prompt_hash": prompt_hash, "run_status": status, "model_calls": model_calls,
                 "messages": messages, "max_turns": max_turns, "max_tool_calls": max_tool_calls,
                 "format_retry_limit": format_retries, "format_corrections": corrections,

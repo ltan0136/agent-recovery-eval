@@ -13,6 +13,8 @@ import platform
 import statistics
 from typing import Any
 
+from .decisions import conditional_recovery, retry_permission
+
 
 def read_jsonl(path: str | Path) -> list[dict[str, Any]]:
     return [json.loads(line) for line in Path(path).read_text(encoding="utf-8").splitlines() if line.strip()]
@@ -31,7 +33,10 @@ def source_hashes() -> dict[str, str]:
 
 
 def seed_consistency(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """pass^k across seeds: a (workflow, variant, condition) family passes only if every seed succeeds.
+    """All-seeds success: a (workflow, variant, condition) family passes only if every seed succeeds.
+
+    This is not tau-bench's pass^k. pass^k repeats the *same* task k times; here each seed
+    is a different case, because the seed moves the fault and the stale/late schedules.
 
     Seeds move the fault onto a different step and change stale/late schedules, so a policy
     that only recovers on some steps scores lower here than on the per-episode success rate.
@@ -101,7 +106,9 @@ def summarize(rows: list[dict[str, Any]]) -> dict[str, Any]:
             "agents": sorted({r["agent_id"] for r in rows}),
             "agent_kinds": sorted({r["agent_kind"] for r in rows}),
             "run_status_counts": dict(Counter(r.get("run_status", "scripted_completed") for r in rows)),
-            "metrics": metrics, "seed_consistency": seed_consistency(rows)}
+            "metrics": metrics, "seed_consistency": seed_consistency(rows),
+            "conditional_recovery": conditional_recovery(rows),
+            "retry_permission": retry_permission(rows)}
 
 
 def _safe_data(value: Any) -> str:
@@ -113,14 +120,31 @@ def render_report(summary: dict, traces: list[dict], manifest: dict, output: Pat
     totals = [m for m in summary["metrics"] if m["workflow"] == "all" and m["fault"] == "all"]
     consistency = {c["agent_id"]: c for c in summary.get("seed_consistency", []) if c["fault"] == "all"}
 
-    def pass_k(agent: str) -> str:
+    def all_seeds(agent: str) -> str:
         c = consistency.get(agent)
         return f"{c['all_seeds_success_rate']:.1%} (k={c['k']})" if c and c["k"] >= 2 else "—"
 
     table = "".join("<tr>" + f"<td>{html.escape(m['agent_id'])}</td><td>{html.escape(m['agent_kind'])}</td><td>{m['episodes']}</td>" +
-                    f"<td>{m['success_rate']:.1%}</td><td>{pass_k(m['agent_id'])}</td><td>{m['duplicate_episode_rate']:.1%}</td>" +
+                    f"<td>{m['success_rate']:.1%}</td><td>{all_seeds(m['agent_id'])}</td><td>{m['duplicate_episode_rate']:.1%}</td>" +
                     f"<td>{m['missing_episode_rate']:.1%}</td><td>{m['false_success_rate']:.1%}</td>" +
                     f"<td>{m['mean_tool_calls']:.2f}</td></tr>" for m in totals)
+    crsr = {c["agent_id"]: c for c in summary.get("conditional_recovery", []) if c["fault"] == "recoverable_faults"}
+    retries = {r["agent_id"]: r for r in summary.get("retry_permission", []) if r["fault"] == "all"}
+
+    def rate(value: float | None) -> str:
+        return "—" if value is None else f"{value:.1%}"
+
+    def recovery_row(agent: str) -> str:
+        c, r = crsr.get(agent), retries.get(agent)
+        cells = [html.escape(agent),
+                 f"{rate(c['conditional_recovery_success_rate'])} ({c['successes']}/{c['eligible_episodes']})" if c else "—",
+                 str(r["retry_decisions"]) if r else "—",
+                 rate(r["justified_retry_share"]) if r else "—",
+                 str(r["successes_with_unjustified_retry"]) if r else "—",
+                 rate(r["success_without_unjustified_retry_rate"]) if r else "—"]
+        return "<tr>" + "".join(f"<td>{cell}</td>" for cell in cells) + "</tr>"
+
+    recovery_table = "".join(recovery_row(m["agent_id"]) for m in totals)
     kinds = ", ".join(summary["agent_kinds"])
     payload = _safe_data({"summary": summary, "traces": traces})
     page = """<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -130,7 +154,8 @@ body{margin:0;background:#f2f5f8;color:#193147;font:15px/1.7 system-ui,sans-seri
 <p>固定公开步骤计划、业务参数和故障条件，以最终状态和提交账本判断结果。</p>
 <div class="cards"><div class="card"><strong>__EPISODES__</strong>执行回合</div><div class="card"><strong>__WORKFLOWS__</strong>工作流</div><div class="card"><strong>__FAMILIES__</strong>业务参数族</div><div class="card"><strong>__FAULTS__</strong>条件（含对照）</div></div>
 <div class="notice">本报告的执行类型：<strong>__KINDS__</strong>。规则策略与真实模型分别标记；模型的格式错误、截断、工具错误和基础设施错误保留在原始轨迹中。公开计划意味着本任务测执行与恢复，不测隐藏流程规划。云端任务：__CLOUD__。</div>
-<h2>1. 总体结果</h2><div class="scroll"><table><tr><th>Agent / 策略</th><th>执行类型</th><th>回合</th><th>完成率</th><th>跨种子全通过 pass^k</th><th>重复回合率</th><th>漏做回合率</th><th>错误宣称成功率</th><th>平均调用</th></tr>__TABLE__</table></div><p class="muted">pass^k：同一工作流、业务变体与条件的全部 k 个种子都成功才算通过。种子改变故障落在哪一步及迟到／陈旧读调度，所以它比逐回合完成率更能暴露“只在部分步骤上能恢复”的策略；少于 2 个种子时显示 —。</p>
+<h2>1. 总体结果</h2><div class="scroll"><table><tr><th>Agent / 策略</th><th>执行类型</th><th>回合</th><th>完成率</th><th>跨种子全通过率</th><th>重复回合率</th><th>漏做回合率</th><th>错误宣称成功率</th><th>平均调用</th></tr>__TABLE__</table></div><p class="muted">跨种子全通过率：同一工作流、业务变体与条件的全部 k 个种子都成功才算通过。种子改变故障落在哪一步及迟到／陈旧读调度，所以它比逐回合完成率更能暴露“只在部分步骤上能恢复”的策略；少于 2 个种子时显示 —。它不是 τ-bench 的 pass^k：后者把同一任务重复 k 次，这里每个种子是不同案例。</p>
+<h3>条件恢复与重试依据</h3><div class="scroll"><table><tr><th>Agent / 策略</th><th>条件恢复率（可恢复故障）</th><th>重试决策</th><th>有依据的重试占比</th><th>依靠无依据重试的成功回合</th><th>不含无依据重试的完成率</th></tr>__RECOVERY__</table></div><p class="muted">条件恢复率：同一 Agent 在同一工作流、业务变体与种子的 clean 回合成功时，对应故障回合的完成率；永久失败按设计不可恢复，不计入。重试决策：某步骤上一次写入返回 timeout（结果未知）后再次写入该步骤。按公开服务契约，超时不取消待处理写入、not_found 可能陈旧，所以只有在服务支持幂等且复用同一 operation_id 时重试才有依据；其余重试即使最终成功也只是侥幸，最后一列把这类成功剔除。</p>
 <h2>2. 按工作流与故障查看</h2><label>Agent <select id="agent"></select></label><label>工作流 <select id="workflow"></select></label><label>条件 <select id="fault"></select></label><div id="slice" class="notice"></div>
 <h2>3. 可检查的原始轨迹样例</h2><p class="muted">报告内展示每个 Agent／工作流／条件下的代表样例；全部回合在 episodes.jsonl。失败优先，包含原始模型输出及工具返回。</p><input id="search" placeholder="搜索 case ID、状态或故障"><div id="traces"></div>
 <h2>4. 复现与限制</h2><p>生成器参数、模型 revision、预算、代码 SHA256、run 状态和文件校验保存在 manifest.json。条件配对、bootstrap 与放行决定由独立 compare 命令生成。本报告不给多业务总体泛化或新算法结论；模拟环境的幂等契约和永久故障边界必须一并解释。</p>
@@ -139,7 +164,7 @@ body{margin:0;background:#f2f5f8;color:#193147;font:15px/1.7 system-ui,sans-seri
     replacements = {"__EPISODES__": f"{summary['episodes']:,}", "__WORKFLOWS__": str(len(summary["workflows"])),
                     "__FAMILIES__": str(summary["task_families"]), "__FAULTS__": str(len(summary["faults"])),
                     "__KINDS__": html.escape(kinds), "__CLOUD__": "已执行" if manifest.get("cloud_execution") else "未执行",
-                    "__TABLE__": table, "__TIME__": html.escape(manifest["created_utc"]), "__DATA__": payload}
+                    "__TABLE__": table, "__RECOVERY__": recovery_table, "__TIME__": html.escape(manifest["created_utc"]), "__DATA__": payload}
     for token, value in replacements.items():
         page = page.replace(token, value)
     output.write_text(page, encoding="utf-8")

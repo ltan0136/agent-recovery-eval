@@ -38,8 +38,9 @@ def verify(directory: Path) -> dict:
     rows = read_jsonl(directory / "episodes.jsonl")
     saved = json.loads((directory / "summary.json").read_text(encoding="utf-8"))
     expected = summarize(rows)
-    if "seed_consistency" not in saved:
-        expected.pop("seed_consistency")  # summaries written before pass^k was added
+    for key in ("seed_consistency", "conditional_recovery", "retry_permission"):
+        if key not in saved:
+            expected.pop(key)  # summaries written before this metric was added
     if saved != expected:
         raise ValueError("Summary differs from the raw episodes")
     if (directory / "progress.jsonl").exists() and read_jsonl(directory / "progress.jsonl") != rows:

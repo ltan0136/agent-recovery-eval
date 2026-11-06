@@ -16,7 +16,9 @@ from recovery_eval.agents import (
     ModelResponse,
     OpenAICompatibleAdapter,
     build_messages,
+    native_tools,
     parse_action,
+    parse_native_action,
     run_agent,
 )
 
@@ -40,6 +42,45 @@ class SequenceAdapter:
 
     def describe(self):
         return {"backend": "unit_test_only", "model_id": self.model_id}
+
+
+class NativeSequenceAdapter:
+    """Returns provider-style tool calls; a list item is one turn's calls, a str is prose."""
+
+    model_id = "test-model"
+    kind = "api_model"
+    supports_native_tools = True
+
+    def __init__(self, turns):
+        self.turns = iter(turns)
+        self.received = []
+
+    def complete(self, messages, tools=None):
+        self.received.append((deepcopy(messages), deepcopy(tools)))
+        turn = next(self.turns)
+        if isinstance(turn, str):
+            return ModelResponse(text=turn, tool_calls=[])
+        calls = [{"id": f"call-{len(self.received)}-{i}", "type": "function",
+                  "function": {"name": name, "arguments": json.dumps(arguments)}}
+                 for i, (name, arguments) in enumerate(turn)]
+        return ModelResponse(text="", tool_calls=calls)
+
+    def describe(self):
+        return {"backend": "unit_test_only", "model_id": self.model_id}
+
+
+def native_turns_for(case, *, repeat_first=False, keyed=False):
+    from recovery_eval.engine import Environment
+
+    turns = []
+    for index, step in enumerate(Environment(case).public_task["steps"]):
+        arguments = dict(step["arguments"])
+        if keyed:
+            arguments["operation_id"] = f"operation-{step['name']}"
+        turns.append([(step["tool"], arguments)])
+        if repeat_first and index == 0:
+            turns.append([(step["tool"], arguments)])
+    return turns + [[("finish", {"success": True})]]
 
 
 class FakeEnvironment:
@@ -247,6 +288,101 @@ class BackendTests(unittest.TestCase):
             "urllib.request.urlopen", return_value=io.BytesIO(json.dumps(body).encode())
         ), self.assertRaises(ModelAdapterError):
             adapter.complete([{"role": "user", "content": "Hi"}])
+
+
+class NativeProtocolTests(unittest.TestCase):
+    def test_parse_native_action_is_as_strict_as_text_actions(self):
+        call = lambda name, args: [{"id": "c", "type": "function", "function": {"name": name, "arguments": args}}]
+        self.assertEqual(parse_native_action(call("create", '{"a":1}')), {"tool": "create", "arguments": {"a": 1}})
+        self.assertEqual(parse_native_action(call("finish", '{"success":false}')), {"finish": {"success": False}})
+        for bad in (None, [], call("create", '{"a":1,"a":2}'), call("create", "[1]"),
+                    call("finish", '{"success":"yes"}'), call("create", '{"a":NaN}'),
+                    call("create", '{"a":1}') + call("create", '{"a":1}')):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                parse_native_action(bad)
+
+    def test_native_tools_add_finish_and_keep_public_contracts(self):
+        schemas = [{"type": "function", "function": {"name": "create", "parameters": {"type": "object"}}}]
+        tools = native_tools(schemas)
+        self.assertEqual(tools[0], schemas[0])
+        self.assertEqual(tools[-1]["function"]["name"], "finish")
+        with self.assertRaises(ValueError):
+            native_tools([{"type": "function", "function": {"name": "finish"}}])
+
+    def test_native_messages_keep_the_same_advice_but_move_contracts_to_tools(self):
+        task = {"task_id": "t"}
+        schemas = [{"type": "function", "function": {"name": "create_record"}}]
+        native = build_messages(task, schemas, "guarded", "native")
+        text = build_messages(task, schemas, "guarded")
+        self.assertNotIn("create_record", native[0]["content"])
+        self.assertIn("create_record", text[0]["content"])
+        self.assertIn("stable operation_id", native[0]["content"])
+        self.assertEqual(native[1], text[1])
+
+    def test_native_episode_executes_tools_with_tool_messages(self):
+        from recovery_eval.workflows import build_matrix
+
+        case = build_matrix(workflows="ticket_dispatch", variants=1, seeds=1, faults="clean")[0]
+        adapter = NativeSequenceAdapter(native_turns_for(case))
+        result = run_agent(case, adapter, tool_protocol="native")
+        self.assertTrue(result["success"])
+        self.assertEqual(result["tool_protocol"], "native")
+        self.assertTrue(result["agent_id"].endswith(":basic:native"))
+        _, tools = adapter.received[0]
+        self.assertEqual(tools[-1]["function"]["name"], "finish")
+        messages, _ = adapter.received[1]
+        self.assertEqual(messages[-2]["tool_calls"][0]["id"], messages[-1]["tool_call_id"])
+        self.assertEqual(messages[-1]["role"], "tool")
+        self.assertTrue(json.loads(messages[-1]["content"])["observation"]["response"]["ok"])
+
+    def test_native_lost_ack_retry_with_stable_key(self):
+        from recovery_eval.decisions import retry_audit
+        from recovery_eval.workflows import build_matrix
+
+        case = build_matrix(workflows="ticket_dispatch", variants=1, seeds=1, faults="lost_ack")[0]
+        result = run_agent(case, NativeSequenceAdapter(native_turns_for(case, repeat_first=True, keyed=True)),
+                           prompt_variant="guarded", tool_protocol="native")
+        self.assertTrue(result["success"])
+        self.assertEqual(result["duplicates"], 0)
+        self.assertEqual(retry_audit(result)["justified_retries"], 1)
+
+    def test_several_calls_in_one_turn_execute_nothing_and_answer_every_id(self):
+        from recovery_eval.workflows import build_matrix
+
+        case = build_matrix(workflows="ticket_dispatch", variants=1, seeds=1, faults="clean")[0]
+        turns = native_turns_for(case)
+        adapter = NativeSequenceAdapter([turns[0] + turns[1], "I am done."])
+        result = run_agent(case, adapter, tool_protocol="native")
+        self.assertEqual(result["actual_tool_invocations"], 0)
+        self.assertEqual(result["ledger"], [])
+        self.assertEqual(result["run_status"], "invalid_action")
+        self.assertEqual(result["format_corrections"], 1)
+        messages, _ = adapter.received[1]
+        answered = [m["tool_call_id"] for m in messages if m["role"] == "tool"]
+        self.assertEqual(answered, [c["id"] for c in messages[-3]["tool_calls"]])
+        self.assertIn("No tool was executed", messages[-1]["content"])
+
+    def test_native_protocol_requires_a_supporting_backend(self):
+        with self.assertRaises(ValueError):
+            run_agent({"title": "x"}, SequenceAdapter([]), tool_protocol="native")
+
+    def test_api_sends_tools_and_reads_tool_calls(self):
+        adapter = OpenAICompatibleAdapter("test", "https://endpoint.example.test/v1", api_key_env="TEST_MODEL_KEY")
+        provider_response = {"choices": [{"message": {"content": None, "tool_calls": [
+            {"id": "call_1", "type": "function", "index": 0,
+             "function": {"name": "finish", "arguments": '{"success":true}'}}]},
+            "finish_reason": "tool_calls"}], "usage": {"prompt_tokens": 5, "completion_tokens": 3, "total_tokens": 8}}
+        tools = native_tools([])
+        with patch.dict(os.environ, {"TEST_MODEL_KEY": "SECRET_TEST_KEY"}), patch(
+            "urllib.request.urlopen", return_value=io.BytesIO(json.dumps(provider_response).encode())
+        ) as request:
+            result = adapter.complete([{"role": "user", "content": "Hi"}], tools=tools)
+        payload = json.loads(request.call_args.args[0].data)
+        self.assertEqual(payload["tools"], tools)
+        self.assertEqual(result.text, "")
+        self.assertEqual(result.tool_calls, [{"id": "call_1", "type": "function",
+                                              "function": {"name": "finish", "arguments": '{"success":true}'}}])
+        self.assertEqual(parse_native_action(result.tool_calls), {"finish": {"success": True}})
 
 
 class EngineIntegrationTests(unittest.TestCase):

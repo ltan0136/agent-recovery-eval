@@ -11,7 +11,9 @@
 5. 增加严格配对回归比较、按工作流和业务变体成簇的 bootstrap 区间、切片与门禁状态。
 6. 增加架构、Benchmark Card、审查、贡献、安全和 GitHub 提交文档与模板。
 7. 增加固定发布协议的回合级续跑工具，保留已完成失败、拒绝并发worker，并明确未知在途尝试的记录边界。
-8. 摘要与报告增加跨种子 pass^k（`seed_consistency`）；`verify_artifacts.py` 仍接受此前没有该字段的摘要。CLI 在创建输出目录前校验 `--policies`、`--prompts` 与 `--base-url`，参数错误不再留下失败的运行目录。
+8. 摘要与报告增加跨种子全通过率（`seed_consistency`；与 τ-bench 的 pass^k 含义不同）；`verify_artifacts.py` 仍接受此前没有该字段的摘要。CLI 在创建输出目录前校验 `--policies`、`--prompts` 与 `--base-url`，参数错误不再留下失败的运行目录。
+9. 摘要与报告增加条件恢复率（`conditional_recovery`，clean 成功的同一案例才计入，永久失败单列）与逐决策的重试依据审计（`retry_permission`：超时后重试是否复用同一幂等键）。两者都从已保存的公开轨迹重算，旧运行同样适用；`verify_artifacts.py` 接受没有这两个字段的旧摘要。
+10. API 后端新增 `--tool-protocol native`：同一组公开契约改经 `tools`/`tool_calls` 传递，`agent_id` 带 `:native` 后缀，便于比较执行协议本身的影响。默认仍为文本 JSON 动作。
 
 ### CLI 迁移
 
