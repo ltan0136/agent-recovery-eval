@@ -14,11 +14,26 @@
 
 `faultbench` 不是因账户名含某些字符就可归属给某个大学或机构；此处只使用其实际 GitHub 所有者名称。其 README 明确给出功能与 pre-alpha 状态，本项目不替它背书生产可用性。
 
+### 1.1 2026-10-17 之后补充的工作
+
+查阅日期：2026-11-06。以下均为 arXiv 预印本，只核对了标题、首发日期与摘要，未读完整正文，也未复现其实验；数字均引自摘要。
+
+| 工作 | arXiv 首发 | 摘要中的要点 | 与本项目的关系 |
+| --- | --- | --- | --- |
+| [RetryBench](https://arxiv.org/abs/2610.15884) | 2026-10-11 | 把“是否有权重试”（有幂等键保证或未执行证明）与最终效果、完成分开评分，并在与观察一致的全部隐藏执行世界上重放每个决策；对幂等键的措辞变化会大幅改变模型是否复用正确的键 | 本项目只按最终状态与账本判分，没有逐决策评价重试依据；这是最直接的可补指标 |
+| [Tool-Calling LLM Agents Under Realistic MCP Faults](https://arxiv.org/abs/2610.32555) | 2026-10-23 | 提出 MCP-Injector：在 MCP 调用路径上注入永久／瞬时／间歇故障，故障分布按 1,774 个开源 MCP 仓库的 57,240 条 issue/PR 校准；在其测试的两个模型规模下，规模没有带来更强的容错，不同 agent 框架差异更明显 | 本项目的故障在模拟服务内部注入、条件人工设定；MCP 服务只暴露通用 `execute`，没有在 MCP 传输层注入故障 |
+| [SSCBench](https://arxiv.org/abs/2610.11514) | 2026-10-08 | 指出解释“采纳了错误事实”之前，应先报告反证是否在首次使用前对 agent 可见；在其样本中，反证最终可见的 44 次采纳里只有 17 次在首次使用前可见 | 与 `stale_read` 条件直接相关：本项目未记录陈旧读之后、首次依赖该读之前是否已有权威反证 |
+| [Permission to Retry](https://arxiv.org/abs/2610.31916) | 2026-10-22 | 把检查点状态、派发许可、外部效果证据与对账许可当作不同义务，用提供方隐藏账本给 LangGraph 与 Temporal 上的 336 条历史判分 | 与本项目“结算后按账本判分”的思路一致；它研究执行框架，本项目研究模型／策略 |
+| [Loud Failures, Quiet Failures](https://arxiv.org/abs/2610.10062) | 2026-10-07 | 显式错误下 agent 在 91.3% 的试验中把它当作问题，格式正确但值错误时只有 58.8%；同一任务两次无故障运行只有 63.3% 结束于同一状态 | 本项目的故障都有错误信号或可查询状态，没有“格式正确但内容错误”的静默故障；其运行间方差提醒真实模型结果需要重复 |
+| [Prefix Executability](https://arxiv.org/abs/2610.40444) | 2026-10-29 | 用每个前缀是否仍可执行（First-Error Depth、恢复率等）评价轨迹，指出只看最终成功与前缀级排名会不一致 | 本项目保留完整轨迹，但摘要只报告终态指标；可从轨迹派生首个错误深度 |
+
+这些工作说明恢复评测正从“最终是否完成”转向“每个决策是否有依据、错误首次出现在哪里”。本项目目前仍以终态与账本为主，上表最后一列列出的是尚未实现的部分，不代表已经对齐。
+
 ## 2. 更早的状态化 Agent 评测依据
 
 [τ-bench 论文](https://arxiv.org/abs/2406.12045) 首发于 **2024-06-17**，[官方仓库](https://github.com/sierra-research/tau-bench) 由 Sierra Research 发布。它评估用户、Agent、领域工具和政策约束间的交互，使用会话结束后的数据库状态检查目标，并讨论跨多次试验的一致性。
 
-这里借鉴的是“以业务状态判断结果”的成熟思路。本仓库没有实现 τ-bench 的用户模拟和完整政策交互，也没有将自己的重复回合指标命名为它的 `pass^k`。官方旧仓库当前提示任务已较旧，并指向[后续仓库](https://github.com/sierra-research/tau2-bench)；如要使用其数据做新实验，应在后续仓库固定版本并重新检查任务修复与许可。
+这里借鉴的是“以业务状态判断结果”的成熟思路。本仓库没有实现 τ-bench 的用户模拟和完整政策交互。τ-bench 的 `pass^k` 把同一任务独立重复 k 次、要求全部成功；本仓库 `summary.json` 中的 `seed_consistency`（报告里称“跨种子全通过率”）要求同一工作流、业务变体和条件的全部种子都成功，而种子会改变故障落在哪一步及迟到／陈旧读调度，所以每个种子是不同案例，不是同一任务的重复试验。两者不能直接比较，因此本仓库不把它称作 `pass^k`。官方旧仓库当前提示任务已较旧，并指向[后续仓库](https://github.com/sierra-research/tau2-bench)；如要使用其数据做新实验，应在后续仓库固定版本并重新检查任务修复与许可。
 
 ## 3. 平台与协议接口来源
 
@@ -27,6 +42,7 @@
 | Modal 批处理 | [Batch Processing](https://modal.com/docs/guide/batch-processing)；[Modal 文档](https://modal.com/docs) | 为可选远程批处理提供接口依据；具体支持范围看 [Modal 集成说明](../integrations/MODAL.md) | SDK 加载、本地执行或 CLI 帮助检查不等于云端任务成功，也不构成费用硬上限 |
 | Prime Intellect Verifiers | [官方仓库](https://github.com/PrimeIntellect-ai/verifiers)；[Verifiers v1 Tasksets](https://docs.primeintellect.ai/verifiers/v1/tasksets) | Taskset 定义任务、数据与评分；Toolset 通过受支持 harness 暴露 MCP 工具；具体接入看集成目录 | 旧静态诊断任务不能算成动态恢复结果；包加载与 dry-run 不等于 Hub 发布或托管推理成功 |
 | MCP Python SDK | [官方仓库](https://github.com/modelcontextprotocol/python-sdk) | 通过真实 stdio 客户端／服务端验证公共工具传输；具体版本与命令见 [MCP 说明](MCP.md) | 传输测试通过不证明模型能力，也不表示生产级隔离、多租户或远程部署已经完成 |
+| MCP 规范 2026-07-28 | [变更记录](https://modelcontextprotocol.io/specification/2026-07-28/changelog) | 该版去掉协议级会话与 `initialize` 握手，并把 tasks 移入官方扩展 `io.modelcontextprotocol/tasks`（以 `tasks/get` 轮询代替阻塞的 `tasks/result`）。长任务句柄天然对应本项目“写入结果未知”的情形，可作为后续条件；本仓库尚未实现 tasks 扩展 | 本仓库固定的 SDK 版本通过 stdio 测试，不等于已覆盖新规范的全部行为 |
 
 平台文档会变化；安装与复现使用本仓库声明的固定依赖和实际结果元数据。若上游接口改变，先更新适配及测试，再更改版本约束，不用旧运行成绩证明新接口仍有效。
 

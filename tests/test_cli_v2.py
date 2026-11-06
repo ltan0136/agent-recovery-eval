@@ -236,7 +236,7 @@ class CliV2Tests(unittest.TestCase):
             self.assertEqual(consistency[fault]["all_seeds_success_rate"], 0.5)
             self.assertEqual(consistency[fault]["per_episode_success_rate"], 0.75)
 
-    def test_report_shows_pass_k_only_with_repeated_seeds(self):
+    def test_report_shows_all_seeds_rate_only_with_repeated_seeds(self):
         single = finalize_run([self.scripted_row()], self.root / "one-seed")
         self.assertEqual(single["seed_consistency"][0]["k"], 1)
         self.assertNotIn("(k=", (self.root / "one-seed" / "report.html").read_text())
@@ -244,7 +244,7 @@ class CliV2Tests(unittest.TestCase):
         finalize_run(rows, self.root / "three-seeds")
         self.assertIn("100.0% (k=3)", (self.root / "three-seeds" / "report.html").read_text())
 
-    def test_artifact_verifier_accepts_summaries_written_before_pass_k(self):
+    def test_artifact_verifier_accepts_summaries_written_before_seed_consistency(self):
         from scripts.verify_artifacts import verify
         rows = [run_scripted(case) for case in build_matrix("ticket_dispatch", 1, 2, "clean")]
         output = self.root / "legacy"
