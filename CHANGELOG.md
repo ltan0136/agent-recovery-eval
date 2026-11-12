@@ -14,6 +14,7 @@
 8. 摘要与报告增加跨种子全通过率（`seed_consistency`；与 τ-bench 的 pass^k 含义不同）；`verify_artifacts.py` 仍接受此前没有该字段的摘要。CLI 在创建输出目录前校验 `--policies`、`--prompts` 与 `--base-url`，参数错误不再留下失败的运行目录。
 9. 摘要与报告增加条件恢复率（`conditional_recovery`，clean 成功的同一案例才计入，永久失败单列）与逐决策的重试依据审计（`retry_permission`：超时后重试是否复用同一幂等键）。两者都从已保存的公开轨迹重算，旧运行同样适用；`verify_artifacts.py` 接受没有这两个字段的旧摘要。
 10. API 后端新增 `--tool-protocol native`：同一组公开契约改经 `tools`/`tool_calls` 传递，`agent_id` 带 `:native` 后缀，便于比较执行协议本身的影响。默认仍为文本 JSON 动作。
+11. 增加判定器故障注入测试 `tests/test_oracle_v2.py`：盲目重试真实造成的重复占库、重复扣款和两批邀请，以及服务端会先拒绝、只能直接注入已结算状态的违规，每例断言完整失败原因。新增 `scripts/oracle_mutation_check.py`，在临时副本中逐条关闭 v0.2 判定器的 24 项检查并重跑测试；补测前其中 17 项单独关闭不会被任何测试发现，现在全部会。
 
 ### CLI 迁移
 
