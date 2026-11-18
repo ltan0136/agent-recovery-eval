@@ -65,7 +65,18 @@ def main(argv=None):
     compare.add_argument("--fail-on-block", action="store_true")
     export = sub.add_parser("export-diagnosis", help="Export settled evidence for the separate Prime diagnosis task")
     export.add_argument("--episodes", required=True); export.add_argument("--out", required=True)
+    share = sub.add_parser("export-summary", help="Export aggregate metrics to a standalone HTML file")
+    share.add_argument("--summary", required=True, type=Path)
+    share.add_argument("--out", required=True, type=Path)
     args = parser.parse_args(argv)
+    if args.command == "export-summary":
+        from .share_report import export_summary
+        try:
+            export_summary(args.summary, args.out)
+        except (OSError, ValueError) as error:
+            parser.error(str(error))
+        print(json.dumps({"report": str(args.out)}, ensure_ascii=False))
+        return
     if args.command == "list":
         print(json.dumps({"workflows": {key: {"title": spec.title, "steps": [s.name for s in spec.steps]}
                                          for key, spec in workflow_specs().items()},

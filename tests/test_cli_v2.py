@@ -44,6 +44,45 @@ class CliV2Tests(unittest.TestCase):
     def scripted_row(self):
         return run_scripted(build_matrix("ticket_dispatch", 1, 1, "clean")[0])
 
+    def test_summary_export_only_includes_allowlisted_aggregate_fields(self):
+        scripted = self.scripted_row()
+        model = deepcopy(scripted)
+        private = "private-project-name"
+        model.update(agent_id=private, agent_kind="api_model")
+        model["model_calls"] = [{"raw_generation": "private-model-response"}]
+        summary = summarize([scripted, model])
+        summary["private_note"] = "private-run-notes"
+        summary["metrics"][0]["private_path"] = "/home/private-directory"
+        source = self.root / "summary.json"
+        source.write_text(json.dumps(summary), encoding="utf-8")
+        destination = self.root / "share" / "summary.html"
+        self.invoke(["export-summary", "--summary", source, "--out", destination])
+        html = destination.read_text(encoding="utf-8")
+        self.assertIn(scripted["agent_id"], html)
+        self.assertIn("匿名组 1", html)
+        self.assertIn("共 2 个回合", html)
+        self.assertNotIn("private", html)
+        self.assertNotIn("<script", html)
+        self.assertEqual(html.count('<th scope="row">'), 2)
+        with self.assertRaises(SystemExit):
+            self.invoke(["export-summary", "--summary", source, "--out", destination])
+        self.assertEqual(destination.read_text(encoding="utf-8"), html)
+
+    def test_summary_export_rejects_inconsistent_or_non_numeric_aggregates(self):
+        summary = summarize([self.scripted_row()])
+        index = next(i for i, row in enumerate(summary["metrics"]) if row["workflow"] == row["fault"] == "all")
+        source, out = self.root / "summary.json", self.root / "share.html"
+        for change in ({"successes": "private"}, {"episodes": 0}, {"episodes": 2},
+                       {"successes": True}, {"successes": 9}, {"missing_episode_rate": float("nan")},
+                       {"duplicate_episode_rate": "private"}, {"false_success_rate": 1.1}):
+            with self.subTest(change=change):
+                updated = deepcopy(summary)
+                updated["metrics"][index].update(change)
+                source.write_text(json.dumps(updated), encoding="utf-8")
+                with self.assertRaises(SystemExit):
+                    self.invoke(["export-summary", "--summary", source, "--out", out])
+                self.assertFalse(out.exists())
+
     def test_real_small_matrix_run_replay_and_manifest_hashes(self):
         matrix = self.root / "cases.jsonl"
         exported = self.run_cli("matrix", "--workflows", "ticket_dispatch", "--variants", 2,

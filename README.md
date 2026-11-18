@@ -91,6 +91,12 @@ recovery-eval model --backend api --tool-protocol native --model YOUR_MODEL --ba
 
 ## 7. 结果文件与项目结构
 
+需要分享汇总结果时，可从 `summary.json` 单独导出静态 HTML。内置规则策略显示原名，其他评测组用本页的匿名编号。分享版只列回合数、成功数和各项比例。原始 `report.html` 用于内部审查，包含样例轨迹和模型输出。
+
+```bash
+recovery-eval export-summary --summary runs/review/summary.json --out reports/review-summary.html
+```
+
 每次运行生成 `episodes.jsonl`、`summary.json`、`metrics.csv`、`example_traces.json`、自包含 `report.html` 和含校验和的 `manifest.json`。`summary.json` 的 `seed_consistency` 另给出跨种子全通过率：同一工作流、业务变体和条件的全部种子都成功才算通过。种子改变故障落点和迟到／陈旧读调度，因此它能暴露只在部分步骤上能恢复的策略；默认矩阵下 `no_retry` 逐回合完成率 21.1%，3 个种子全通过只有 12.5%。它不是 τ-bench 的 pass^k（同一任务重复 k 次），见[相关工作](docs/RELATED_WORK.md)。`conditional_recovery` 给出条件恢复率（CRSR）：只看同一 Agent 在同一工作流、业务变体与种子的 clean 回合成功时的故障回合，永久失败按设计不可恢复，不计入 `recoverable_faults` 汇总。`retry_permission` 逐决策检查重试是否有依据：某步骤写入返回 timeout 后再次写入即为一次重试决策；按公开服务契约，只有服务支持幂等且复用同一 `operation_id` 时才有依据，其余重试即使成功也只是侥幸。默认矩阵下 `bounded_retry` 在 pre_commit_timeout 条件 48/48 完成，但全部依靠无依据重试；`idempotent_retry` 的 336 次重试全部有依据。`progress.jsonl` 持续保存已完成回合，中断不会把它们变成成功运行。报告展示失败优先的代表轨迹，完整分母在 JSONL。
 
 | 路径 | 作用 |
